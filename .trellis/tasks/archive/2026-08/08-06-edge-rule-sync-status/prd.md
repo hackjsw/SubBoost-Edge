@@ -33,19 +33,34 @@ tell whether remote rules are current and can request an immediate refresh.
 
 ## Acceptance Criteria
 
-- [ ] Anonymous status and refresh requests return 401.
-- [ ] Unsupported methods return 405 with the correct `Allow` header.
-- [ ] Status reads valid KV data and reports exact rule counts and timestamps
+- [x] Anonymous status and refresh requests return 401.
+- [x] Unsupported methods return 405 with the correct `Allow` header.
+- [x] Status reads valid KV data and reports exact rule counts and timestamps
   without calling GitHub.
-- [ ] Missing/invalid rule KV data reports the bundled fallback accurately.
-- [ ] Manual refresh reports refreshed, stale, and unavailable outcomes without
+- [x] Missing/invalid rule KV data reports the bundled fallback accurately.
+- [x] Manual refresh reports refreshed, stale, and unavailable outcomes without
   deleting the previous usable index.
-- [ ] Dashboard renders source, counts, last sync, next sync, loading, error,
+- [x] Dashboard renders source, counts, last sync, next sync, loading, error,
   and refreshing states without layout overlap on desktop or mobile.
-- [ ] Worker and component tests pass, and Edge lint/type-check/build pass.
-- [ ] README points to `https://sub.cces.us.ci/` and documents both endpoints.
-- [ ] Changes are committed, pushed to `hackjsw/SubBoost-Edge`, deployed, and
+- [x] Worker and component tests pass, and Edge lint/type-check/build pass.
+- [x] README points to `https://sub.cces.us.ci/` and documents both endpoints.
+- [x] Changes are committed, pushed to `hackjsw/SubBoost-Edge`, deployed, and
   the production health/status flow is verified.
+
+## Verification Notes
+
+- Cloudflare Worker version `d961503f-00f4-4c1a-9e83-889ac5f03dfa` was deployed
+  to the `test` Worker and verified through `https://sub.cces.us.ci/`.
+- Production returned `remote` with 1,895 GeoSite and 260 GeoIP entries; manual
+  refresh succeeded and updated the visible synchronization time.
+- Desktop 1440x900 and mobile 390x844 browser checks found no panel overflow,
+  horizontal document scroll, or overlapping panel sections.
+- Focused Worker/component tests passed 30/30; lint, Edge type-check, Edge build,
+  and Wrangler dry-run passed. The complete suite passed 1,102 tests across 206
+  files when excluding `local/scripts/selfhost-shell.test.ts`.
+- That unchanged HEAD baseline file still has two pre-existing self-host update
+  failures; `git diff --quiet HEAD -- local/scripts` confirms this task did not
+  modify the affected implementation or tests.
 
 ## Out Of Scope
 
