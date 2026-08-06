@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   tabs: [] as any[],
   links: [] as any[],
   subscriptionDialog: undefined as any,
+  quickMode: undefined as any,
   yamlHighlight: undefined as any,
   interactions: {
     modeChanged: vi.fn(),
@@ -84,7 +85,10 @@ vi.mock("@subboost/ui/components/ui/tabs", () => ({
 }));
 
 vi.mock("@subboost/ui/product/converter/quick-mode", () => ({
-  QuickMode: () => React.createElement("div", null, "quick-mode"),
+  QuickMode: (props: any) => {
+    mocks.quickMode = props;
+    return React.createElement("div", null, "quick-mode");
+  },
 }));
 
 vi.mock("@subboost/ui/product/converter/advanced-mode", () => ({
@@ -138,6 +142,9 @@ function createSubscription(overrides: Record<string, unknown> = {}) {
     },
     smartNodeMatchingEnabled: true,
     setSmartNodeMatchingEnabled: vi.fn(),
+    conversionProfiles: [],
+    conversionProfileId: "native",
+    setConversionProfileId: vi.fn(),
     isCreatingSubscription: false,
     copied: false,
     saveRequirementDialog: false,
@@ -174,6 +181,7 @@ describe("HomeLayout", () => {
     mocks.tabs = [];
     mocks.links = [];
     mocks.subscriptionDialog = undefined;
+    mocks.quickMode = undefined;
     mocks.yamlHighlight = undefined;
   });
 
@@ -218,6 +226,11 @@ describe("HomeLayout", () => {
         requireIntegerHours: true,
       },
       smartNodeMatchingEnabled: true,
+    });
+    expect(mocks.quickMode).toMatchObject({
+      conversionProfiles: subscription.conversionProfiles,
+      conversionProfileId: subscription.conversionProfileId,
+      setConversionProfileId: subscription.setConversionProfileId,
     });
   });
 

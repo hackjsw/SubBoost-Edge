@@ -1,6 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CLASH_CONVERSION_PROFILES } from "@subboost/core/subscription/clash-conversion-profiles";
 
 const mocks = vi.hoisted(() => ({
   captures: {} as Record<string, any>,
@@ -130,6 +131,12 @@ vi.mock("@subboost/ui/product/api-adapter", () => ({
 vi.mock("@subboost/ui/product/interactions", () => ({
   useProductInteractionAdapter: () => mocks.interactions,
 }));
+vi.mock("@subboost/ui/product/home/clash-conversion-profile-dialog", () => ({
+  ClashConversionProfileDialog: (props: any) => {
+    mocks.captures.profileDialog = props;
+    return null;
+  },
+}));
 vi.mock("./constants", () => ({
   templates: [
     { id: "minimal", name: "Minimal", description: "Light", groups: 1, rules: 2 },
@@ -145,18 +152,31 @@ const catalogItems = [
   { id: "tpl-yaml", name: "Raw YAML", description: "YAML template" },
 ];
 
+const expectedAcl4ssrProfileIds = [
+  "acl4ssr-online",
+  "acl4ssr-online-mini",
+  "acl4ssr-online-full",
+  "acl4ssr-online-mini-ai",
+  "acl4ssr-online-multi-country",
+  "acl4ssr-online-no-auto",
+  "acl4ssr-online-no-reject",
+];
+
 function flushPromises() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function renderSection(overrides: Record<number, unknown> = {}) {
+function renderSection(
+  overrides: Record<number, unknown> = {},
+  props: React.ComponentProps<typeof TemplatesSection> = {}
+) {
   stateMock.enabled = true;
   stateMock.callIndex = 0;
   stateMock.overrides = overrides;
   stateMock.setters = [];
   mocks.captures = { buttons: [], cards: [], inputs: [], rawButtons: [] };
   try {
-    const html = renderToStaticMarkup(React.createElement(TemplatesSection));
+    const html = renderToStaticMarkup(React.createElement(TemplatesSection, props));
     return { html, setters: stateMock.setters };
   } finally {
     stateMock.enabled = false;
@@ -208,6 +228,68 @@ describe("quick mode TemplatesSection", () => {
     mocks.captures.cards.at(-1).onClick();
     expect(setters[0]).toHaveBeenCalledWith(true);
     expect(mocks.interactions.templateCatalogOpened).toHaveBeenCalledWith({ mode: "quick" });
+  });
+
+  it("shows the ACL4SSR entry after the built-ins and keeps the four choices coherent", () => {
+    const setConversionProfileId = vi.fn();
+    const props = {
+      conversionProfiles: CLASH_CONVERSION_PROFILES,
+      conversionProfileId: "native" as const,
+      setConversionProfileId,
+    };
+    const { html, setters } = renderSection({}, props);
+
+    const cardHtml = mocks.captures.cards.map((card: any) =>
+      renderToStaticMarkup(React.createElement(React.Fragment, null, card.children))
+    );
+    expect(cardHtml[0]).toContain("Minimal");
+    expect(cardHtml[1]).toContain("Standard");
+    expect(cardHtml[2]).toContain("Full");
+    expect(cardHtml[3]).toContain("ACL4SSR 模板");
+    expect(cardHtml[4]).toContain("Catalog");
+    expect(html).toContain("7 个官方远程配置");
+    expect(html).toContain("7 个官模");
+    expect(html).toContain("保存订阅时应用");
+    expect(mocks.captures.cards).toHaveLength(5);
+
+    mocks.captures.cards[3].onClick();
+    expect(setters[6]).toHaveBeenCalledWith(true);
+    expect(mocks.captures.profileDialog.profiles.map((profile: any) => profile.id)).toEqual(
+      expectedAcl4ssrProfileIds
+    );
+
+    mocks.captures.profileDialog.onValueChange("acl4ssr-online-full");
+    expect(setConversionProfileId).toHaveBeenCalledWith("acl4ssr-online-full");
+    expect(setters[6]).toHaveBeenCalledWith(false);
+
+    const selected = renderSection({}, {
+      ...props,
+      conversionProfileId: "acl4ssr-online-full",
+    });
+    expect(selected.html).toContain("ACL4SSR 完整版");
+    expect(mocks.captures.cards[0]["aria-checked"]).toBe(false);
+    expect(mocks.captures.cards[3]).toMatchObject({
+      role: "button",
+      "aria-haspopup": "dialog",
+      "aria-expanded": false,
+    });
+    expect(mocks.captures.cards[3].className).toContain("bg-indigo-500/10");
+
+    mocks.captures.cards[1].onClick();
+    expect(mocks.store.setTemplate).toHaveBeenCalledWith("standard");
+    expect(setConversionProfileId).toHaveBeenCalledWith("native");
+  });
+
+  it("hides the ACL4SSR entry when the runtime has no conversion profiles", () => {
+    const result = renderSection({}, {
+      conversionProfiles: [],
+      conversionProfileId: "native",
+      setConversionProfileId: vi.fn(),
+    });
+
+    expect(result.html).not.toContain("ACL4SSR 模板");
+    expect(mocks.captures.profileDialog).toBeUndefined();
+    expect(mocks.captures.cards).toHaveLength(4);
   });
 
   it("renders catalog search, loading, empty, and filtered states", () => {

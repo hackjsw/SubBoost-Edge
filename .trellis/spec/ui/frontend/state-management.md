@@ -17,3 +17,19 @@ Do not create an application-specific duplicate of these stores in `local` or
 `edge`. Do not persist request progress or server cache snapshots in Zustand.
 When changing user scope, preserve the reset behavior in `config-store` so one
 user's persisted config is not shown to another.
+
+### Preserve Pre-Dialog Subscription Choices
+
+Subscription-scoped controls may be exposed before the save dialog opens. For
+new subscriptions, dialog initialization must preserve a currently selected
+value when it is still present in the adapter's allowlist. For edits, restore
+the saved value and fall back to the adapter default only when it is invalid.
+This prevents opening a dialog from silently undoing a choice made elsewhere
+on the same surface.
+
+```tsx
+setProfileId((current) => {
+  if (!isEditing && profiles.some((profile) => profile.id === current)) return current;
+  return resolveSavedOrDefaultProfileId();
+});
+```

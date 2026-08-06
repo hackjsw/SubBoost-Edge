@@ -222,15 +222,21 @@ export function useSubscriptionLink({
     setAutoUpdateEnabled(nextAutoUpdateEnabled);
     setAutoUpdateHours(nextAutoUpdateHours);
     setSmartNodeMatchingEnabled(editingSubscription?.smartNodeMatchingEnabled !== false);
-    const editingProfileId = resolveClashConversionProfileId(
-      editingSubscription?.conversionProfileId,
-      defaultConversionProfileId
-    );
-    setConversionProfileId(
-      conversionProfiles.some((profile) => profile.id === editingProfileId)
+    setConversionProfileId((currentProfileId) => {
+      if (!isEditingExistingSubscription) {
+        return conversionProfiles.some((profile) => profile.id === currentProfileId)
+          ? currentProfileId
+          : defaultConversionProfileId;
+      }
+
+      const editingProfileId = resolveClashConversionProfileId(
+        editingSubscription?.conversionProfileId,
+        defaultConversionProfileId
+      );
+      return conversionProfiles.some((profile) => profile.id === editingProfileId)
         ? editingProfileId
-        : defaultConversionProfileId
-    );
+        : defaultConversionProfileId;
+    });
     setSubscriptionUrl("");
     setSubscriptionDialog(true);
   }, [

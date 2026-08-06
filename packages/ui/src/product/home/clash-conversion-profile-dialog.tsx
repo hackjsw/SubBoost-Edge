@@ -113,7 +113,8 @@ export function ClashConversionProfileDialog({
 }: Props) {
   const nativeProfiles = profiles.filter((profile) => !profile.configUrl);
   const remoteProfiles = profiles.filter((profile) => profile.configUrl);
-  const selectedProfile = profiles.find((profile) => profile.id === value) ?? profiles[0];
+  const remoteOnly = nativeProfiles.length === 0 && remoteProfiles.length > 0;
+  const selectedProfile = profiles.find((profile) => profile.id === value);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -123,10 +124,12 @@ export function ClashConversionProfileDialog({
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#edf9f7] text-[#087f70]">
               <Sparkles className="h-4 w-4" aria-hidden="true" />
             </span>
-            Clash 规则方案
+            {remoteOnly ? "ACL4SSR 模板" : "Clash 规则方案"}
           </DialogTitle>
           <DialogDescription className="text-[#60706d]">
-            决定订阅链接交付原生 YAML，还是套用 ACL4SSR 远程配置。
+            {remoteOnly
+              ? "选择用于保存订阅和定时更新的官方远程配置。"
+              : "决定订阅链接交付原生 YAML，还是套用 ACL4SSR 远程配置。"}
           </DialogDescription>
         </DialogHeader>
 

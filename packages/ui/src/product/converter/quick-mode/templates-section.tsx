@@ -12,9 +12,24 @@ import { BUILTIN_TEMPLATE_IDS } from "@subboost/core/templates/builtin";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { useProductApiAdapter } from "@subboost/ui/product/api-adapter";
 import { useProductInteractionAdapter } from "@subboost/ui/product/interactions";
+import type {
+  ClashConversionProfile,
+  ClashConversionProfileId,
+} from "@subboost/core/subscription/clash-conversion-profiles";
+import { ClashConversionProfileDialog } from "@subboost/ui/product/home/clash-conversion-profile-dialog";
 import { templates } from "./constants";
 
-export function TemplatesSection() {
+type Props = {
+  conversionProfiles?: readonly ClashConversionProfile[];
+  conversionProfileId?: ClashConversionProfileId;
+  setConversionProfileId?: (value: ClashConversionProfileId) => void;
+};
+
+export function TemplatesSection({
+  conversionProfiles = [],
+  conversionProfileId,
+  setConversionProfileId,
+}: Props = {}) {
   const [catalogOpen, setCatalogOpen] = React.useState(false);
   const [catalogLoading, setCatalogLoading] = React.useState(false);
   const [catalogTemplates, setCatalogTemplates] = React.useState<Array<{ id: string; name: string; description: string }>>([]);
@@ -45,6 +60,36 @@ export function TemplatesSection() {
     standard: { id: BUILTIN_TEMPLATE_IDS.standard, engagementCount: 0, isEngaged: false },
     full: { id: BUILTIN_TEMPLATE_IDS.full, engagementCount: 0, isEngaged: false },
   });
+  const [conversionProfileDialogOpen, setConversionProfileDialogOpen] = React.useState(false);
+  const remoteConversionProfiles = React.useMemo(
+    () => conversionProfiles.filter((profile) => Boolean(profile.configUrl)),
+    [conversionProfiles]
+  );
+  const nativeConversionProfile = React.useMemo(
+    () => conversionProfiles.find((profile) => !profile.configUrl),
+    [conversionProfiles]
+  );
+  const selectedRemoteConversionProfile = remoteConversionProfiles.find(
+    (profile) => profile.id === conversionProfileId
+  );
+  const conversionProfileEntryEnabled = Boolean(
+    nativeConversionProfile && remoteConversionProfiles.length > 0 && setConversionProfileId
+  );
+
+  const selectBuiltinTemplate = (templateType: TemplateType) => {
+    setTemplate(templateType);
+    if (
+      nativeConversionProfile &&
+      setConversionProfileId &&
+      conversionProfileId !== nativeConversionProfile.id
+    ) {
+      setConversionProfileId(nativeConversionProfile.id);
+    }
+    interactions.templateSelected?.({
+      source: "builtin",
+      templateType,
+    });
+  };
 
   React.useEffect(() => {
     if (!loadBuiltinTemplateEngagement) return;
@@ -195,63 +240,119 @@ export function TemplatesSection() {
       <div className="space-y-1.5">
         <label className="text-xs text-white/50">选择模板</label>
         <div className="grid gap-1.5">
-          {templates.map((template) => (
-            <Card
-              key={template.id}
-              className={cn(
-                "p-2.5 cursor-pointer transition-all border-2",
-                selectedTemplate === template.id ? "border-indigo-500 bg-indigo-500/10" : "border-transparent hover:border-white/20"
-              )}
-              onClick={() => {
-                setTemplate(template.id);
-                interactions.templateSelected?.({
-                  source: "builtin",
-                  templateType: template.id,
-                });
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div
-                    className={cn(
-                      "w-4 h-4 rounded-full border-2 flex items-center justify-center",
-                      selectedTemplate === template.id ? "border-indigo-500" : "border-white/30"
-                    )}
-                  >
-                    {selectedTemplate === template.id && <div className="w-2 h-2 rounded-full bg-indigo-500" />}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white">{template.name}</span>
-                      {builtinEngagementEnabled && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void toggleBuiltinEngagement(template.id);
-                          }}
-                          disabled={!user}
-                          className={cn(
-                            "inline-flex items-center gap-0.5 text-xs transition-colors",
-                            builtinEngagement[template.id]?.isEngaged ? "text-red-400" : "text-white/40 hover:text-red-400",
-                            !user && "cursor-not-allowed opacity-50"
-                          )}
-                          title={user ? engagementAction : engagementLoginRequired}
-                        >
-                          <Heart className={cn("h-3 w-3", builtinEngagement[template.id]?.isEngaged && "fill-current")} />
-                          <span>{builtinEngagement[template.id]?.engagementCount ?? 0}</span>
-                        </button>
+          <div className="grid gap-1.5" role="radiogroup" aria-label="内置模板">
+            {templates.map((template) => (
+              <Card
+                key={template.id}
+                className={cn(
+                  "p-2.5 cursor-pointer transition-all border-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2",
+                  !selectedRemoteConversionProfile && selectedTemplate === template.id
+                    ? "border-indigo-500 bg-indigo-500/10"
+                    : "border-transparent hover:border-white/20"
+                )}
+                role="radio"
+                aria-checked={!selectedRemoteConversionProfile && selectedTemplate === template.id}
+                tabIndex={0}
+                onClick={() => selectBuiltinTemplate(template.id)}
+                onKeyDown={(event) => {
+                  if (event.key !== " " && event.key !== "Enter") return;
+                  event.preventDefault();
+                  selectBuiltinTemplate(template.id);
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={cn(
+                        "w-4 h-4 rounded-full border-2 flex items-center justify-center",
+                        !selectedRemoteConversionProfile && selectedTemplate === template.id
+                          ? "border-indigo-500"
+                          : "border-white/30"
+                      )}
+                    >
+                      {!selectedRemoteConversionProfile && selectedTemplate === template.id && (
+                        <div className="w-2 h-2 rounded-full bg-indigo-500" />
                       )}
                     </div>
-                    <p className="text-xs text-white/40 mt-0.5">{template.description}</p>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-white">{template.name}</span>
+                        {builtinEngagementEnabled && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void toggleBuiltinEngagement(template.id);
+                            }}
+                            disabled={!user}
+                            className={cn(
+                              "inline-flex items-center gap-0.5 text-xs transition-colors",
+                              builtinEngagement[template.id]?.isEngaged ? "text-red-400" : "text-white/40 hover:text-red-400",
+                              !user && "cursor-not-allowed opacity-50"
+                            )}
+                            title={user ? engagementAction : engagementLoginRequired}
+                          >
+                            <Heart className={cn("h-3 w-3", builtinEngagement[template.id]?.isEngaged && "fill-current")} />
+                            <span>{builtinEngagement[template.id]?.engagementCount ?? 0}</span>
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-white/40 mt-0.5">{template.description}</p>
+                    </div>
+                  </div>
+                  <div className="text-right text-xs text-white/40 space-y-0.5">
+                    <div>{template.groups} 代理组</div>
+                    <div>{template.rules} 规则集</div>
                   </div>
                 </div>
-                <div className="text-right text-xs text-white/40 space-y-0.5">
-                  <div>{template.groups} 代理组</div>
-                  <div>{template.rules} 规则集</div>
+              </Card>
+            ))}
+          </div>
+
+          {conversionProfileEntryEnabled && nativeConversionProfile && setConversionProfileId && (
+            <Card
+              className={cn(
+                "p-2.5 cursor-pointer transition-all border-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2",
+                selectedRemoteConversionProfile
+                  ? "border-indigo-500 bg-indigo-500/10"
+                  : "border-transparent hover:border-white/20"
+              )}
+              role="button"
+              aria-haspopup="dialog"
+              aria-expanded={conversionProfileDialogOpen}
+              tabIndex={0}
+              onClick={() => setConversionProfileDialogOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key !== " " && event.key !== "Enter") return;
+                event.preventDefault();
+                setConversionProfileDialogOpen(true);
+              }}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div
+                    className={cn(
+                      "flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2",
+                      selectedRemoteConversionProfile ? "border-indigo-500" : "border-white/30"
+                    )}
+                  >
+                    {selectedRemoteConversionProfile && (
+                      <div className="h-2 w-2 rounded-full bg-indigo-500" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium text-white">ACL4SSR 模板</span>
+                    <p className="mt-0.5 truncate text-xs text-white/40">
+                      {selectedRemoteConversionProfile?.name ?? `${remoteConversionProfiles.length} 个官方远程配置`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex-shrink-0 space-y-0.5 text-right text-xs text-white/40">
+                  <div>{remoteConversionProfiles.length} 个官模</div>
+                  <div>保存订阅时应用</div>
                 </div>
               </div>
             </Card>
-          ))}
+          )}
 
           {catalogEnabled && (
             <Card
@@ -325,6 +426,19 @@ export function TemplatesSection() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {conversionProfileEntryEnabled && nativeConversionProfile && setConversionProfileId && (
+        <ClashConversionProfileDialog
+          open={conversionProfileDialogOpen}
+          onOpenChange={setConversionProfileDialogOpen}
+          profiles={remoteConversionProfiles}
+          value={conversionProfileId ?? nativeConversionProfile.id}
+          onValueChange={(value) => {
+            setConversionProfileId(value);
+            setConversionProfileDialogOpen(false);
+          }}
+        />
+      )}
     </>
   );
 }

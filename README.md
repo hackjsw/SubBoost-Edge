@@ -41,6 +41,7 @@ EdgeSub 将 SubBoost 的配置生成器和订阅管理能力部署到一个 Clou
 ## Edge 版本功能
 
 - 保留 SubBoost 的 Clash/Mihomo 配置生成、节点导入、链式代理和智能分流能力。
+- 快捷模式在“完整版”下提供 ACL4SSR 模板入口，可选择 7 个官方远程配置。
 - 支持 `/sub`、`/clash`、`/shorten` 和 `/test` 等原 Worker 接口。
 - 使用 Worker Secret 密码登录，并通过签名的 HttpOnly Cookie 保护管理接口。
 - 使用 `SUB_KV` 持久保存订阅、生成结果、自动更新设置和规则索引。
@@ -134,6 +135,22 @@ npm run edge:deploy
 | `/sub` | 通用 Base64 订阅输出 |
 | `/clash` | Clash YAML 转换输出 |
 | `/config/:token` | 已保存订阅的固定访问地址 |
+
+## ACL4SSR 官模与更新机制
+
+Edge 部署在首页快捷模式的“完整版”下方提供 **ACL4SSR 模板**入口，可选择以下 7 个 ACL4SSR 官方远程配置：
+
+- 标准版
+- 精简版
+- 完整版
+- AI 版
+- 多地区版
+- 无测速版
+- 无拦截版
+
+所选方案会随订阅记录保存到 KV。手动刷新或 Cron 到期刷新订阅时，Worker 会将对应的 ACL4SSR `master` 配置地址交给 subconverter，因此会使用上游当前版本；Worker 不会每 15 分钟单独下载或复制模板文件到 KV。若 ACL4SSR 或 subconverter 暂时不可用，转换请求会返回错误，不会静默切换到原生规则。
+
+首页本地 YAML 预览仍使用 EdgeSub 内置模板。ACL4SSR 官模应用于保存后的订阅输出，也可以在“生成订阅链接”弹窗中再次确认或切换。
 
 ## 本地开发与检查
 

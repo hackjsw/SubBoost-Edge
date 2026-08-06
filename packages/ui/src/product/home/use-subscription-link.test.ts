@@ -290,7 +290,7 @@ describe("useSubscriptionLink", () => {
     expect(payload).not.toHaveProperty("conversionProfileId");
   });
 
-  it("round-trips a selected conversion profile only when the adapter enables it", async () => {
+  it("preserves and round-trips a selected conversion profile when the adapter enables it", async () => {
     const adapter = makeAdapter({
       conversionProfiles: CLASH_CONVERSION_PROFILES,
       defaultConversionProfileId: "acl4ssr-online",
@@ -300,6 +300,12 @@ describe("useSubscriptionLink", () => {
 
     hook.setSubscriptionName("Profiled Sub");
     hook.setConversionProfileId("acl4ssr-online-full");
+    hook = useRenderedHook({ subscriptionAdapter: adapter });
+    hook.handleGenerateSubscription("quick");
+    hook = useRenderedHook({ subscriptionAdapter: adapter });
+    expect(hook.subscriptionDialog).toBe(true);
+    expect(hook.conversionProfileId).toBe("acl4ssr-online-full");
+    hook.setSubscriptionName("Profiled Sub");
     hook = useRenderedHook({ subscriptionAdapter: adapter });
     await hook.handleCreateSubscription();
 
