@@ -1,4 +1,8 @@
 import {
+  getClashConversionProfile,
+  isClashConversionProfileId,
+} from "@subboost/core/subscription/clash-conversion-profiles";
+import {
   ACL4SSR_CONFIG_URL,
   CF_NON_TLS_PORTS,
   KV_TTL,
@@ -7,12 +11,12 @@ import {
   MAX_SOURCE_ITEMS,
   MAX_TEST_NODES,
   REGION_CONFIG,
-  SUBCONVERTER_BACKEND,
   TLS_PORTS,
 } from "./constants";
 import { byteLength, safeBase64Decode, utf8ToBase64 } from "./encoding";
 import { json, methodNotAllowed, readJsonBody } from "./http";
 import { assertPublicHttpUrl, fetchRemoteText } from "./remote-fetch";
+import { convertClashSubscription } from "./subconverter";
 import type { EdgeNode, ExecutionContextLike, SubRequestParams, WorkerEnv } from "./types";
 
 type ExtractedNode = {
@@ -56,6 +60,7 @@ export async function getSubParams(request: Request): Promise<SubRequestParams> 
       id: stringValue(body.id),
       template: stringValue(body.template),
       source: stringValue(body.source),
+      profile: stringValue(body.profile) || undefined,
       rawMode: body.raw === true,
       jsonMode: body.format === "json",
       filterRegions: regionFilterValue(body.regions),
@@ -68,6 +73,7 @@ export async function getSubParams(request: Request): Promise<SubRequestParams> 
     id: url.searchParams.get("id")?.trim() || "",
     template: url.searchParams.get("template")?.trim() || "",
     source: url.searchParams.get("source")?.trim() || "",
+    profile: url.searchParams.get("profile")?.trim() || undefined,
     rawMode: url.searchParams.get("raw") === "true",
     jsonMode: url.searchParams.get("format") === "json",
     filterRegions: url.searchParams.get("regions") || undefined,
@@ -83,11 +89,16 @@ export async function handleShorten(request: Request, env: WorkerEnv): Promise<R
 
   const source = stringValue(body.source);
   if (!source) return json({ error: "节点来源不能为空" }, 400);
+  const profile = stringValue(body.profile);
+  if (profile && (!isClashConversionProfileId(profile) || profile === "native")) {
+    return json({ error: "无效的 Clash 规则方案" }, 400);
+  }
 
   const stored = {
     template: stringValue(body.template),
     source,
     dedup: booleanValue(body.dedup, true),
+    ...(profile ? { profile } : {}),
   };
   const bodyString = JSON.stringify(stored);
   if (byteLength(bodyString) > MAX_SOURCE_BYTES) return json({ error: "节点来源过大" }, 413);
@@ -119,6 +130,7 @@ async function resolveShortLinkParams(
       source: stringValue(data.source) || params.source,
       template: typeof data.template === "string" ? data.template : params.template,
       dedupMode: typeof data.dedup === "boolean" ? data.dedup : params.dedupMode,
+      profile: typeof data.profile === "string" ? data.profile : params.profile,
     };
     const refresh = env.SUB_KV.put(params.id, stored, { expirationTtl: KV_TTL });
     if (ctx) ctx.waitUntil(refresh);
@@ -449,6 +461,13 @@ export async function handleClash(
   const shortResolved = await resolveShortLinkParams(await getSubParams(request), env, ctx);
   const params = shortResolved.params;
   if (!params.source) return new Response("Error: missing source", { status: 400 });
+  let profileConfigUrl: string | null = null;
+  if (params.profile) {
+    if (!isClashConversionProfileId(params.profile) || params.profile === "native") {
+      return new Response("Error: invalid clash profile", { status: 400 });
+    }
+    profileConfigUrl = getClashConversionProfile(params.profile).configUrl;
+  }
 
   const origin = new URL(request.url).origin;
   const subUrl = new URL("/sub", origin);
@@ -463,31 +482,15 @@ export async function handleClash(
     if (!params.dedupMode) subUrl.searchParams.set("dedup", "false");
   }
 
-  const converterUrl = new URL(env.SUBCONVERTER_BACKEND || SUBCONVERTER_BACKEND);
-  if (!converterUrl.pathname || converterUrl.pathname === "/") converterUrl.pathname = "/sub";
-  converterUrl.searchParams.set("target", "clash");
-  converterUrl.searchParams.set("url", subUrl.toString());
-  converterUrl.searchParams.set("config", env.ACL4SSR_CONFIG_URL || ACL4SSR_CONFIG_URL);
-  converterUrl.searchParams.set("emoji", "true");
-  converterUrl.searchParams.set("udp", "true");
-  converterUrl.searchParams.set("list", "false");
+  const configUrl = profileConfigUrl || env.ACL4SSR_CONFIG_URL || ACL4SSR_CONFIG_URL;
+  if (!configUrl) return new Response("Error: invalid clash profile", { status: 400 });
 
-  try {
-    const upstream = await fetch(converterUrl, {
-      headers: { "User-Agent": "EdgeSub/2.6" },
-      cf: { cacheTtl: 300, cacheEverything: true },
-    } as RequestInit);
-    const headers = new Headers(upstream.headers);
-    headers.delete("content-length");
-    headers.set("Content-Type", "text/yaml;charset=UTF-8");
-    headers.set("X-Content-Type-Options", "nosniff");
-    headers.set("Content-Disposition", `attachment; filename=clash-${crypto.randomUUID().slice(0, 8)}.yaml`);
-    return new Response(upstream.body, { status: upstream.status, headers });
-  } catch (error) {
-    return new Response(`Error: subconverter failed: ${error instanceof Error ? error.message : String(error)}`, {
-      status: 502,
-    });
-  }
+  return convertClashSubscription({
+    env,
+    sourceUrl: subUrl.toString(),
+    configUrl,
+    method: request.method === "HEAD" ? "HEAD" : "GET",
+  });
 }
 
 export async function handleTest(request: Request): Promise<Response> {

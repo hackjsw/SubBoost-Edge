@@ -49,6 +49,7 @@ export interface SubRequestParams {
   id: string;
   template: string;
   source: string;
+  profile?: string;
   rawMode: boolean;
   jsonMode: boolean;
   filterRegions?: string | string[];

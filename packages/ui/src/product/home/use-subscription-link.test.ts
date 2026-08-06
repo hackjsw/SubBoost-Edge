@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CLASH_CONVERSION_PROFILES } from "@subboost/core/subscription/clash-conversion-profiles";
 import { useSubscriptionLink } from "./use-subscription-link";
 import { makeAdapter, makeOptions, response } from "./use-subscription-link.test-helpers";
 
@@ -164,17 +165,20 @@ describe("useSubscriptionLink", () => {
       name: "",
       autoUpdateInterval: 7200,
       smartNodeMatchingEnabled: false,
+      conversionProfileId: "acl4ssr-online-mini" as const,
     };
-    let hook = useRenderedHook({ editingSubscription });
+    const subscriptionAdapter = makeAdapter({ conversionProfiles: CLASH_CONVERSION_PROFILES });
+    let hook = useRenderedHook({ editingSubscription, subscriptionAdapter });
 
     hook.handleGenerateSubscription("advanced");
-    hook = useRenderedHook({ editingSubscription });
+    hook = useRenderedHook({ editingSubscription, subscriptionAdapter });
 
     expect(hook.subscriptionDialog).toBe(true);
     expect(hook.subscriptionName).toBe("");
     expect(hook.autoUpdateEnabled).toBe(true);
     expect(hook.autoUpdateHours).toBe(12);
     expect(hook.smartNodeMatchingEnabled).toBe(false);
+    expect(hook.conversionProfileId).toBe("acl4ssr-online-mini");
     expect(mocks.bag.interactions.subscriptionLinkIntent).toHaveBeenCalledWith({
       mode: "advanced",
       result: "opened",
@@ -281,6 +285,28 @@ describe("useSubscriptionLink", () => {
     expect(hook.subscriptionUrl).toBe("https://subboost.test/s/token-1");
     expect(mocks.bag.interactions.subscriptionLinkSaved).toHaveBeenCalledWith(
       expect.objectContaining({ result: "success", autoUpdateEnabled: true })
+    );
+    const payload = (adapter.saveSubscription as any).mock.calls[0][0].payload;
+    expect(payload).not.toHaveProperty("conversionProfileId");
+  });
+
+  it("round-trips a selected conversion profile only when the adapter enables it", async () => {
+    const adapter = makeAdapter({
+      conversionProfiles: CLASH_CONVERSION_PROFILES,
+      defaultConversionProfileId: "acl4ssr-online",
+    });
+    let hook = useRenderedHook({ subscriptionAdapter: adapter });
+    expect(hook.conversionProfileId).toBe("acl4ssr-online");
+
+    hook.setSubscriptionName("Profiled Sub");
+    hook.setConversionProfileId("acl4ssr-online-full");
+    hook = useRenderedHook({ subscriptionAdapter: adapter });
+    await hook.handleCreateSubscription();
+
+    expect(adapter.saveSubscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ conversionProfileId: "acl4ssr-online-full" }),
+      })
     );
   });
 
@@ -548,6 +574,7 @@ describe("useSubscriptionLink", () => {
     expect(setEditingSubscription).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Updated", token: "old-token", autoUpdateInterval: null })
     );
+    expect(setEditingSubscription.mock.calls[0][0]).not.toHaveProperty("conversionProfileId");
     expect(mocks.bag.interactions.subscriptionLinkSaved).toHaveBeenCalledWith(
       expect.objectContaining({ flow: "update", result: "success" })
     );

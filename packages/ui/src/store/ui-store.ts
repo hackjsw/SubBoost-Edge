@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ClashConversionProfileId } from "@subboost/core/subscription/clash-conversion-profiles";
 
 type EditingSubscription = {
   id: string;
@@ -6,6 +7,7 @@ type EditingSubscription = {
   name: string;
   autoUpdateInterval: number | null;
   smartNodeMatchingEnabled: boolean;
+  conversionProfileId?: ClashConversionProfileId;
 };
 
 interface UIState {

@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   homeAdapter: null as any,
   readJsonResponse: vi.fn(),
   readSourceImportResponse: vi.fn(),
+  routerRefresh: vi.fn(),
+  routerReplace: vi.fn(),
   templateAdapter: null as any,
   userState: {
     fetchUser: vi.fn(),
@@ -20,6 +22,13 @@ vi.mock("lucide-react", () => ({
   LogOut: () => React.createElement("span", null, "LogOut"),
   ServerCog: () => React.createElement("span", null, "ServerCog"),
   ShieldCheck: () => React.createElement("span", null, "ShieldCheck"),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    refresh: mocks.routerRefresh,
+    replace: mocks.routerReplace,
+  }),
 }));
 
 vi.mock("@subboost/ui/components/ui/button", () => ({
@@ -222,7 +231,6 @@ describe("local app pages and adapters", () => {
       disabled: true,
     });
 
-    vi.stubGlobal("window", { location: { href: "" } });
     mocks.buttons = [];
     mocks.userState = {
       fetchUser: vi.fn(),
@@ -238,6 +246,7 @@ describe("local app pages and adapters", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(mocks.userState.logout).toHaveBeenCalledTimes(1);
-    expect(window.location.href).toBe("/login");
+    expect(mocks.routerReplace).toHaveBeenCalledWith("/login");
+    expect(mocks.routerRefresh).toHaveBeenCalledTimes(1);
   });
 });

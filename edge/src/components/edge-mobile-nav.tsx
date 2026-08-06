@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Database, Download, Eye, Settings2 } from "lucide-react";
 
 const items = [
@@ -12,11 +12,12 @@ const items = [
 
 export function EdgeMobileNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const [active, setActive] = React.useState("config");
 
   const goTo = (id: string) => {
     if (pathname !== "/") {
-      window.location.assign(`/#${id}`);
+      router.push(`/#${id}`);
       return;
     }
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });

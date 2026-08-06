@@ -1,4 +1,5 @@
 import type { SubscriptionSource } from "@subboost/ui/store/config-store";
+import type { ClashConversionProfileId } from "@subboost/core/subscription/clash-conversion-profiles";
 
 export type EditingSubscription = {
   id: string;
@@ -6,6 +7,7 @@ export type EditingSubscription = {
   name: string;
   autoUpdateInterval: number | null;
   smartNodeMatchingEnabled: boolean;
+  conversionProfileId?: ClashConversionProfileId;
 };
 
 export type EditingSubscriptionLoaderOptions = {

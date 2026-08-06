@@ -28,6 +28,12 @@ import {
   type AutoUpdateIntervalPolicyOverride,
 } from "@subboost/core/subscription/auto-update-interval";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
+import {
+  DEFAULT_CLASH_CONVERSION_PROFILE_ID,
+  resolveClashConversionProfileId,
+  type ClashConversionProfile,
+  type ClashConversionProfileId,
+} from "@subboost/core/subscription/clash-conversion-profiles";
 import { DEFAULT_NODE_NAME_TEMPLATE } from "@subboost/core/node-name-template";
 import { formatDateInBeijing } from "@subboost/core/time/beijing";
 import {
@@ -42,6 +48,7 @@ type EditingSubscription = {
   name: string;
   autoUpdateInterval: number | null;
   smartNodeMatchingEnabled: boolean;
+  conversionProfileId?: ClashConversionProfileId;
 };
 
 export type HomeSubscriptionSaveInput = {
@@ -56,6 +63,8 @@ export type HomeSubscriptionAdapter = {
   defaultAutoUpdateEnabled?: boolean;
   autoUpdateAvailable?: boolean;
   linkStorageMode?: "account" | "rolling-kv" | "persistent-kv";
+  conversionProfiles?: readonly ClashConversionProfile[];
+  defaultConversionProfileId?: ClashConversionProfileId;
   acceptSaveRequirement?: () => Promise<Response>;
   saveSubscription?: (input: HomeSubscriptionSaveInput) => Promise<Response>;
 };
@@ -141,6 +150,20 @@ export function useSubscriptionLink({
   const [autoUpdateEnabled, setAutoUpdateEnabled] = React.useState(false);
   const [autoUpdateHours, setAutoUpdateHours] = React.useState(autoUpdatePolicy.defaultHours);
   const [smartNodeMatchingEnabled, setSmartNodeMatchingEnabled] = React.useState(true);
+  const conversionProfiles = React.useMemo(
+    () => subscriptionAdapter?.conversionProfiles ?? [],
+    [subscriptionAdapter?.conversionProfiles]
+  );
+  const requestedDefaultConversionProfileId =
+    subscriptionAdapter?.defaultConversionProfileId ?? DEFAULT_CLASH_CONVERSION_PROFILE_ID;
+  const defaultConversionProfileId = conversionProfiles.some(
+    (profile) => profile.id === requestedDefaultConversionProfileId
+  )
+    ? requestedDefaultConversionProfileId
+    : conversionProfiles[0]?.id ?? DEFAULT_CLASH_CONVERSION_PROFILE_ID;
+  const [conversionProfileId, setConversionProfileId] = React.useState<ClashConversionProfileId>(
+    defaultConversionProfileId
+  );
   const [isCreatingSubscription, setIsCreatingSubscription] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const [saveRequirementDialog, setSaveRequirementDialog] = React.useState(false);
@@ -199,6 +222,15 @@ export function useSubscriptionLink({
     setAutoUpdateEnabled(nextAutoUpdateEnabled);
     setAutoUpdateHours(nextAutoUpdateHours);
     setSmartNodeMatchingEnabled(editingSubscription?.smartNodeMatchingEnabled !== false);
+    const editingProfileId = resolveClashConversionProfileId(
+      editingSubscription?.conversionProfileId,
+      defaultConversionProfileId
+    );
+    setConversionProfileId(
+      conversionProfiles.some((profile) => profile.id === editingProfileId)
+        ? editingProfileId
+        : defaultConversionProfileId
+    );
     setSubscriptionUrl("");
     setSubscriptionDialog(true);
   }, [
@@ -206,6 +238,8 @@ export function useSubscriptionLink({
     autoUpdatePolicy.minHours,
     editingSubscription,
     isEditingExistingSubscription,
+    conversionProfiles,
+    defaultConversionProfileId,
     subscriptionAdapter?.defaultAutoUpdateEnabled,
   ]);
 
@@ -323,6 +357,7 @@ export function useSubscriptionLink({
           name: subscriptionName,
           templateId: appliedTemplateId,
           autoUpdateInterval: autoUpdateAvailable ? nextAutoUpdateInterval : null,
+          ...(conversionProfiles.length > 0 ? { conversionProfileId } : {}),
           urls: storeSources
             .filter((s) => s.type === "url")
             .map((s) => s.content)
@@ -450,6 +485,7 @@ export function useSubscriptionLink({
             token,
             autoUpdateInterval: nextAutoUpdateInterval,
             smartNodeMatchingEnabled,
+            ...(conversionProfiles.length > 0 ? { conversionProfileId } : {}),
           });
         }
         trackSubscriptionMutation("success");
@@ -477,6 +513,8 @@ export function useSubscriptionLink({
     customRuleSets,
     builtinRuleEdits,
     customRules,
+    conversionProfileId,
+    conversionProfiles,
     ruleOrder,
     deletedNodeNames,
     deletedNodes,
@@ -538,6 +576,9 @@ export function useSubscriptionLink({
     linkStorageMode,
     smartNodeMatchingEnabled,
     setSmartNodeMatchingEnabled,
+    conversionProfiles,
+    conversionProfileId,
+    setConversionProfileId,
     isCreatingSubscription,
     copied,
     setCopied,

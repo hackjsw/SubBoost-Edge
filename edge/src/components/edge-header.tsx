@@ -2,16 +2,18 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Database, FileArchive, LogOut, RadioTower } from "lucide-react";
 
 export function EdgeHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const isLoginPage = pathname === "/login";
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-    window.location.assign("/login");
+    router.replace("/login");
+    router.refresh();
   };
 
   return (

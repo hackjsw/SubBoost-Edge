@@ -26,6 +26,10 @@ import { useProductInteractionAdapter, type ProductMode } from "@subboost/ui/pro
 import { cn } from "@subboost/ui/lib/utils";
 import type { User } from "@subboost/ui/store/user-store";
 import type { AutoUpdateIntervalPolicy } from "@subboost/core/subscription/auto-update-interval";
+import type {
+  ClashConversionProfile,
+  ClashConversionProfileId,
+} from "@subboost/core/subscription/clash-conversion-profiles";
 
 type EditingSubscription = {
   id: string;
@@ -50,6 +54,9 @@ type SubscriptionLinkState = {
   linkStorageMode: "account" | "rolling-kv" | "persistent-kv";
   smartNodeMatchingEnabled: boolean;
   setSmartNodeMatchingEnabled: (value: boolean) => void;
+  conversionProfiles: readonly ClashConversionProfile[];
+  conversionProfileId: ClashConversionProfileId;
+  setConversionProfileId: (value: ClashConversionProfileId) => void;
   isCreatingSubscription: boolean;
   copied: boolean;
   saveRequirementDialog: boolean;
@@ -341,10 +348,11 @@ export function HomeLayout({
                   <Button
                     className="h-10 border-rose-500/50 text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 hover:border-rose-400/70"
                     variant="outline"
-                    onClick={() => (window.location.href = "/")}
-                    title="退出编辑模式"
+                    asChild
                   >
-                    退出编辑
+                    <Link href="/" title="退出编辑模式">
+                      退出编辑
+                    </Link>
                   </Button>
                 )}
               </CardFooter>
@@ -388,6 +396,9 @@ export function HomeLayout({
         linkStorageMode={subscription.linkStorageMode}
         smartNodeMatchingEnabled={subscription.smartNodeMatchingEnabled}
         setSmartNodeMatchingEnabled={subscription.setSmartNodeMatchingEnabled}
+        conversionProfiles={subscription.conversionProfiles}
+        conversionProfileId={subscription.conversionProfileId}
+        setConversionProfileId={subscription.setConversionProfileId}
         isCreatingSubscription={subscription.isCreatingSubscription}
         copied={subscription.copied}
         isEditingExistingSubscription={subscription.isEditingExistingSubscription}

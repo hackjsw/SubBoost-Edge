@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   intrinsics: [] as any[],
   links: [] as any[],
   logout: vi.fn(),
+  routerPush: vi.fn(),
+  routerRefresh: vi.fn(),
   refContains: vi.fn(() => false),
   stateSetter: vi.fn(),
   stateOverride: undefined as boolean | undefined,
@@ -58,6 +60,13 @@ vi.mock("next/link", () => ({
     mocks.links.push({ href, onClick });
     return React.createElement("a", { href, ...props }, children);
   },
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mocks.routerPush,
+    refresh: mocks.routerRefresh,
+  }),
 }));
 
 vi.mock("lucide-react", () => ({
@@ -117,7 +126,6 @@ describe("UserMenu", () => {
       }),
       removeEventListener: vi.fn(),
     });
-    vi.stubGlobal("window", { location: { href: "" } });
     mocks.links = [];
     mocks.stateOverride = undefined;
     mocks.userState = {
@@ -221,6 +229,7 @@ describe("UserMenu", () => {
     await findIntrinsic("button", (props) => textOf(props.children).includes("退出登录")).onClick();
     expect(mocks.logout).toHaveBeenCalled();
     expect(mocks.stateSetter).toHaveBeenCalledWith(false);
-    expect(window.location.href).toBe("/");
+    expect(mocks.routerPush).toHaveBeenCalledWith("/");
+    expect(mocks.routerRefresh).toHaveBeenCalled();
   });
 });

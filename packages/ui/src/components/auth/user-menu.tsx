@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@subboost/ui/components/ui/button";
 import { SafeImage } from "@subboost/ui/components/ui/safe-image";
 import { captureAuthConfigHandoff } from "@subboost/ui/store/config-store/auth-handoff";
@@ -23,6 +24,7 @@ export type AccountMenuItem = {
 };
 
 export function UserMenu({ privilegedMenuItem }: { privilegedMenuItem?: AccountMenuItem }) {
+  const router = useRouter();
   const { user, isLoading: userLoading, fetchUser, logout: userLogout } = useUserStore();
   const [isOpen, setIsOpen] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -45,7 +47,8 @@ export function UserMenu({ privilegedMenuItem }: { privilegedMenuItem?: AccountM
   const handleLogout = async () => {
     if (user) await userLogout();
     setIsOpen(false);
-    window.location.href = "/";
+    router.push("/");
+    router.refresh();
   };
 
   const isLoading = userLoading && !user;

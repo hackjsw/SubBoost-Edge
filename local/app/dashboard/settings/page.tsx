@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { LogOut, ServerCog, ShieldCheck } from "lucide-react";
 
 import { Button } from "@subboost/ui/components/ui/button";
@@ -8,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@subboost/ui/component
 import { useUserStore } from "@subboost/ui/store/user-store";
 
 export default function SettingsPage() {
+  const router = useRouter();
   const { user, fetchUser, logout } = useUserStore();
 
   React.useEffect(() => {
@@ -16,7 +18,8 @@ export default function SettingsPage() {
 
   const handleLogout = async () => {
     await logout();
-    window.location.href = "/login";
+    router.replace("/login");
+    router.refresh();
   };
 
   return (

@@ -4,6 +4,10 @@ import { HomeSurface, type HomeSurfaceAdapter } from "@subboost/ui/product/home/
 import { createRulesProductApi } from "@subboost/ui/product/api-adapter";
 import { readSourceImportResponse } from "@subboost/ui/product/client-response";
 import { useConfigStore } from "@subboost/ui/store/config-store";
+import {
+  CLASH_CONVERSION_PROFILES,
+  DEFAULT_CLASH_CONVERSION_PROFILE_ID,
+} from "@subboost/core/subscription/clash-conversion-profiles";
 
 const edgeHomeAdapter: HomeSurfaceAdapter = {
   brandName: "EdgeSub",
@@ -44,6 +48,8 @@ const edgeHomeAdapter: HomeSurfaceAdapter = {
     },
     defaultAutoUpdateEnabled: true,
     linkStorageMode: "persistent-kv",
+    conversionProfiles: CLASH_CONVERSION_PROFILES,
+    defaultConversionProfileId: DEFAULT_CLASH_CONVERSION_PROFILE_ID,
     saveSubscription: async ({ payload, isEditing, subscriptionId }) => {
       const generatedYaml = useConfigStore.getState().generatedYaml;
       const target = isEditing && subscriptionId

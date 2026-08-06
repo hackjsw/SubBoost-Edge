@@ -1,5 +1,12 @@
 import { parseSubscription } from "@subboost/core/parser";
 import {
+  DEFAULT_CLASH_CONVERSION_PROFILE_ID,
+  getClashConversionProfile,
+  isClashConversionProfileId,
+  resolveClashConversionProfileId,
+  type ClashConversionProfileId,
+} from "@subboost/core/subscription/clash-conversion-profiles";
+import {
   normalizeSubscriptionResponseInfo,
   type SubscriptionResponseInfo,
 } from "@subboost/core/subscription/subscription-response-info";
@@ -19,6 +26,7 @@ import {
 import { byteLength } from "./encoding";
 import { json, methodNotAllowed, readJsonBody } from "./http";
 import { fetchRemoteText } from "./remote-fetch";
+import { convertClashSubscription } from "./subconverter";
 import type { ExecutionContextLike, WorkerEnv } from "./types";
 
 const CONFIG_KEY_PREFIX = "edge-config:";
@@ -32,6 +40,7 @@ type StoredSubscription = {
   urls: string[];
   nodes: ParsedNode[];
   config: Record<string, unknown>;
+  conversionProfileId: ClashConversionProfileId;
   subscriptionInfo: SubscriptionResponseInfo;
   autoUpdateInterval: number | null;
   createdAt: string;
@@ -119,6 +128,7 @@ function parseStoredSubscription(value: string): { record: StoredSubscription; m
         urls: [],
         nodes: [],
         config: {},
+        conversionProfileId: DEFAULT_CLASH_CONVERSION_PROFILE_ID,
         subscriptionInfo: {},
         autoUpdateInterval: null,
         createdAt,
@@ -130,8 +140,9 @@ function parseStoredSubscription(value: string): { record: StoredSubscription; m
   const autoUpdateInterval = normalizeAutoUpdateInterval(raw.autoUpdateInterval);
   if (autoUpdateInterval === undefined) return null;
   const config = isRecord(raw.config) ? raw.config : {};
+  const conversionProfileId = resolveClashConversionProfileId(raw.conversionProfileId);
   return {
-    migrated: false,
+    migrated: raw.conversionProfileId !== conversionProfileId,
     record: {
       version: 2,
       name,
@@ -139,6 +150,7 @@ function parseStoredSubscription(value: string): { record: StoredSubscription; m
       urls: normalizeStringList(raw.urls),
       nodes: normalizeStoredNodes(raw.nodes),
       config,
+      conversionProfileId,
       subscriptionInfo: normalizeSubscriptionResponseInfo(raw.subscriptionInfo) ?? {},
       autoUpdateInterval,
       createdAt,
@@ -465,6 +477,13 @@ function buildStoredSubscription(
   const urls = normalizeStringList(body.urls);
   const nodes = normalizeStoredNodes(body.nodes);
   const config = isRecord(body.config) ? body.config : {};
+  const hasConversionProfile = Object.prototype.hasOwnProperty.call(body, "conversionProfileId");
+  if (hasConversionProfile && !isClashConversionProfileId(body.conversionProfileId)) {
+    return { response: json({ error: "无效的 Clash 规则方案" }, 400) };
+  }
+  const conversionProfileId = hasConversionProfile
+    ? (body.conversionProfileId as ClashConversionProfileId)
+    : existing?.conversionProfileId ?? DEFAULT_CLASH_CONVERSION_PROFILE_ID;
   if (autoUpdateInterval && !hasRefreshSource(config, urls)) {
     return { response: json({ error: "自动更新需要至少一个可保存的订阅源" }, 400) };
   }
@@ -477,6 +496,7 @@ function buildStoredSubscription(
     urls,
     nodes,
     config,
+    conversionProfileId,
     subscriptionInfo: normalizeSubscriptionResponseInfo(body.subscriptionInfo) ?? {},
     autoUpdateInterval,
     createdAt: existing?.createdAt || createdAt,
@@ -498,6 +518,7 @@ function publicSubscription(token: string, record: StoredSubscription, origin: s
     subscriptionUrl: `${origin}/config/${token}`,
     isPrimary: false,
     autoUpdateInterval: record.autoUpdateInterval,
+    conversionProfileId: record.conversionProfileId,
     autoUpdateState: {
       externalFailureCount: record.lastError ? 1 : 0,
       failureSourceState: record.lastError ?? null,
@@ -675,7 +696,8 @@ export async function handleStoredConfig(
 ): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
   if (!env.SUB_KV) return new Response("KV is not configured", { status: 503 });
-  const token = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) || "";
+  const requestUrl = new URL(request.url);
+  const token = requestUrl.pathname.split("/").filter(Boolean).at(-1) || "";
   if (!TOKEN_PATTERN.test(token)) return new Response("Subscription not found", { status: 404 });
 
   const key = `${CONFIG_KEY_PREFIX}${token}`;
@@ -706,6 +728,21 @@ export async function handleStoredConfig(
     headers.set("X-SubBoost-Auto-Update", record.autoUpdateInterval ? "enabled" : "disabled");
     headers.set("X-SubBoost-Last-Updated", record.updatedAt);
     if (record.nextUpdateAt) headers.set("X-SubBoost-Next-Update", record.nextUpdateAt);
+
+    if (requestUrl.searchParams.get("raw") !== "1") {
+      const profile = getClashConversionProfile(record.conversionProfileId);
+      if (profile.configUrl) {
+        const sourceUrl = new URL(request.url);
+        sourceUrl.searchParams.set("raw", "1");
+        return convertClashSubscription({
+          env,
+          sourceUrl: sourceUrl.toString(),
+          configUrl: profile.configUrl,
+          method: request.method,
+          responseHeaders: headers,
+        });
+      }
+    }
 
     return new Response(request.method === "HEAD" ? null : record.yaml, {
       headers,

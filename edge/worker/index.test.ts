@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getClashConversionProfile } from "@subboost/core/subscription/clash-conversion-profiles";
 import { KV_TTL, MAX_TEST_NODES } from "./constants";
 import { runScheduledSubscriptionUpdates } from "./edge-api";
 import worker, { handleRequest } from "./index";
@@ -228,10 +229,11 @@ describe("EdgeSub worker", () => {
       env
     );
     const created = (await createResponse.json()) as {
-      subscription: { subscriptionUrl: string; token: string };
+      subscription: { subscriptionUrl: string; token: string; conversionProfileId: string };
     };
 
     expect(created.subscription.token).toMatch(/^[a-f0-9]{20}$/);
+    expect(created.subscription.conversionProfileId).toBe("native");
     const configResponse = await handleRequest(
       new Request(created.subscription.subscriptionUrl),
       { SUB_KV: kv }
@@ -243,6 +245,177 @@ describe("EdgeSub worker", () => {
     expect(await configResponse.text()).toContain("proxies: []");
     expect(kv.writes).toHaveLength(1);
     expect(kv.writes[0]?.expirationTtl).toBeUndefined();
+  });
+
+  it("converts allowlisted stored profiles while raw reads remain local", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "ACL4SSR Mini",
+          yaml: "proxies: []\nrules:\n  - MATCH,DIRECT\n",
+          conversionProfileId: "acl4ssr-online-mini",
+        }),
+      }),
+      env
+    );
+    const created = (await createResponse.json()) as {
+      subscription: { subscriptionUrl: string; token: string; conversionProfileId: string };
+    };
+    expect(created.subscription.conversionProfileId).toBe("acl4ssr-online-mini");
+
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response("proxies: []\nrules:\n  - MATCH,Proxy\n", {
+        headers: { "Content-Type": "text/plain", "Content-Length": "42" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const converted = await handleRequest(new Request(created.subscription.subscriptionUrl), env);
+      expect(converted.status).toBe(200);
+      expect(await converted.text()).toContain("MATCH,Proxy");
+      expect(converted.headers.get("content-type")).toContain("text/yaml");
+      expect(converted.headers.get("content-length")).toBeNull();
+      expect(converted.headers.get("x-subboost-storage")).toBe("persistent-kv");
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      const converterUrl = new URL(String(fetchImpl.mock.calls[0]?.[0]));
+      expect(converterUrl.searchParams.get("target")).toBe("clash");
+      expect(converterUrl.searchParams.get("url")).toBe(
+        `${created.subscription.subscriptionUrl}?raw=1`
+      );
+      expect(converterUrl.searchParams.get("config")).toBe(
+        getClashConversionProfile("acl4ssr-online-mini").configUrl
+      );
+      expect(converterUrl.searchParams.get("emoji")).toBe("true");
+      expect(converterUrl.searchParams.get("udp")).toBe("true");
+      expect(converterUrl.searchParams.get("list")).toBe("false");
+
+      fetchImpl.mockClear();
+      const head = await handleRequest(
+        new Request(created.subscription.subscriptionUrl, { method: "HEAD" }),
+        env
+      );
+      expect(head.status).toBe(200);
+      expect(await head.text()).toBe("");
+      expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({ method: "HEAD" });
+
+      fetchImpl.mockClear();
+      const raw = await handleRequest(
+        new Request(`${created.subscription.subscriptionUrl}?raw=1`),
+        env
+      );
+      expect(raw.status).toBe(200);
+      expect(await raw.text()).toContain("MATCH,DIRECT");
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects unknown profile writes and keeps the public URL stable across updates", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const invalidResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Invalid",
+          yaml: "proxies: []\n",
+          conversionProfileId: "https://example.com/config.ini",
+        }),
+      }),
+      env
+    );
+    expect(invalidResponse.status).toBe(400);
+    expect(Array.from(kv.values.keys()).filter((key) => key.startsWith("edge-config:"))).toHaveLength(0);
+
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Stable",
+          yaml: "proxies: []\n",
+          conversionProfileId: "acl4ssr-online",
+        }),
+      }),
+      env
+    );
+    const created = (await createResponse.json()) as {
+      subscription: { subscriptionUrl: string; token: string; conversionProfileId: string };
+    };
+    const recordUrl = `https://edge.test/api/subscriptions/${created.subscription.token}`;
+
+    const preservedResponse = await handleRequest(
+      authenticatedRequest(recordUrl, cookie, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Preserved", yaml: "proxies: []\n" }),
+      }),
+      env
+    );
+    const preserved = (await preservedResponse.json()) as {
+      subscription: { subscriptionUrl: string; conversionProfileId: string };
+    };
+    expect(preserved.subscription.subscriptionUrl).toBe(created.subscription.subscriptionUrl);
+    expect(preserved.subscription.conversionProfileId).toBe("acl4ssr-online");
+
+    const changedResponse = await handleRequest(
+      authenticatedRequest(recordUrl, cookie, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Changed",
+          yaml: "proxies: []\n",
+          conversionProfileId: "acl4ssr-online-full",
+        }),
+      }),
+      env
+    );
+    const changed = (await changedResponse.json()) as {
+      subscription: { subscriptionUrl: string; conversionProfileId: string };
+    };
+    expect(changed.subscription.subscriptionUrl).toBe(created.subscription.subscriptionUrl);
+    expect(changed.subscription.conversionProfileId).toBe("acl4ssr-online-full");
+  });
+
+  it("uses allowlisted profiles on the legacy clash endpoint", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response("proxies: []\n")
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const clashUrl = new URL("https://edge.test/clash");
+      clashUrl.searchParams.set(
+        "source",
+        "vless://00000000-0000-4000-8000-000000000000@example.com:443?security=tls#HK"
+      );
+      clashUrl.searchParams.set("profile", "acl4ssr-online-no-auto");
+      const response = await handleRequest(authenticatedRequest(clashUrl.toString(), cookie), env);
+      expect(response.status).toBe(200);
+      const converterUrl = new URL(String(fetchImpl.mock.calls[0]?.[0]));
+      expect(converterUrl.searchParams.get("config")).toBe(
+        getClashConversionProfile("acl4ssr-online-no-auto").configUrl
+      );
+
+      fetchImpl.mockClear();
+      clashUrl.searchParams.set("profile", "native");
+      const invalid = await handleRequest(authenticatedRequest(clashUrl.toString(), cookie), env);
+      expect(invalid.status).toBe(400);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("lists, loads, updates, refreshes, and deletes authenticated KV records", async () => {
@@ -337,9 +510,45 @@ describe("EdgeSub worker", () => {
     await Promise.all(ctx.promises);
 
     expect(response.status).toBe(200);
-    const migrated = JSON.parse(kv.values.get(`edge-config:${token}`) || "{}") as { version?: number };
+    const migrated = JSON.parse(kv.values.get(`edge-config:${token}`) || "{}") as {
+      version?: number;
+      conversionProfileId?: string;
+    };
     expect(migrated.version).toBe(2);
+    expect(migrated.conversionProfileId).toBe("native");
     expect(kv.writes.at(-1)?.expirationTtl).toBeUndefined();
+  });
+
+  it("normalizes unknown stored profiles to native without contacting a converter", async () => {
+    const kv = new MemoryKv();
+    const token = "c".repeat(20);
+    const key = `edge-config:${token}`;
+    kv.values.set(
+      key,
+      JSON.stringify({
+        version: 2,
+        name: "Unknown Profile",
+        yaml: "proxies: []\nrules: []\n",
+        autoUpdateInterval: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        conversionProfileId: "https://example.com/config.ini",
+      })
+    );
+    const fetchImpl = vi.fn();
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const ctx = createContext();
+      const response = await handleRequest(new Request(`https://edge.test/config/${token}`), { SUB_KV: kv }, ctx);
+      await Promise.all(ctx.promises);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain("proxies: []");
+      expect(fetchImpl).not.toHaveBeenCalled();
+      const normalized = JSON.parse(kv.values.get(key) || "{}") as { conversionProfileId?: string };
+      expect(normalized.conversionProfileId).toBe("native");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("refreshes due subscriptions from their saved sources", async () => {

@@ -7,6 +7,7 @@ fetch policy, subscription APIs, rule catalog synchronization, and cron jobs.
 
 - [Routing and authentication](./worker-routing-and-auth.md)
 - [KV, cron, and rules](./kv-cron-and-rules.md)
+- [Stored subscription conversion](./stored-subscription-conversion.md)
 - [Testing](./testing.md)
 
 ## Pre-Development Checklist

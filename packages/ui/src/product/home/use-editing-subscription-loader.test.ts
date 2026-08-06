@@ -184,6 +184,7 @@ describe("useEditingSubscriptionLoader", () => {
             token: "token-1",
             name: "Saved",
             autoUpdateInterval: 7200,
+            conversionProfileId: "acl4ssr-online-full",
             urls: ["https://example.com/sub"],
             nodes: [
               node("Remote", {
@@ -298,6 +299,7 @@ describe("useEditingSubscriptionLoader", () => {
       name: "Saved",
       autoUpdateInterval: 7200,
       smartNodeMatchingEnabled: false,
+      conversionProfileId: "acl4ssr-online-full",
     });
     expect(options.setSubscriptionName).toHaveBeenCalledWith("Saved");
     expect(options.setSubscriptionUrl).toHaveBeenCalledWith("");
@@ -338,6 +340,7 @@ describe("useEditingSubscriptionLoader", () => {
         name: "未命名订阅",
         autoUpdateInterval: null,
         smartNodeMatchingEnabled: true,
+        conversionProfileId: "native",
       })
     );
   });

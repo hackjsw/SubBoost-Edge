@@ -10,6 +10,7 @@ import { normalizeRuleModelFromConfig } from "@subboost/core/rules/rule-model";
 import { resolveProxyGroupAdvancedModeEnabled } from "@subboost/core/proxy-group-advanced-mode";
 import { normalizeProxyGroupAdvancedConfig } from "@subboost/core/proxy-group-advanced";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
+import { resolveClashConversionProfileId } from "@subboost/core/subscription/clash-conversion-profiles";
 import {
   hasSubscriptionUserInfo,
   normalizeSubscriptionUserInfo,
@@ -562,6 +563,7 @@ export function useEditingSubscriptionLoader({
             name: sub.name || "未命名订阅",
             autoUpdateInterval,
             smartNodeMatchingEnabled: (cfg as any).smartNodeMatchingEnabled !== false,
+            conversionProfileId: resolveClashConversionProfileId(sub.conversionProfileId),
           });
           setSubscriptionName(sub.name || "");
           setSubscriptionUrl("");
