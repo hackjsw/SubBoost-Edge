@@ -10,10 +10,20 @@ import {
   type RemoteRuleIndex,
   type RuleIndexRefreshResult,
 } from "@subboost/server-core/rules";
+import type {
+  RuleCatalogRefreshResponse,
+  RuleCatalogStatusResponse,
+  RuleCatalogStatusSource,
+} from "../src/lib/rule-catalog-status";
 import { json, methodNotAllowed } from "./http";
 import type { KVNamespaceLike, WorkerEnv } from "./types";
 
 export const RULE_INDEX_CACHE_KEY = "edge-rule-index:v1";
+export const RULE_CATALOG_CRON = "17 3 * * *";
+const RULE_CATALOG_SOURCE_LABEL = "MetaCubeX/meta-rules-dat";
+const RULE_CATALOG_SOURCE_URL = "https://github.com/MetaCubeX/meta-rules-dat";
+const RULE_CATALOG_REFRESH_FAILED_MESSAGE = "远端规则目录同步失败，请稍后重试";
+const RULE_CATALOG_REFRESH_STALE_MESSAGE = "远端同步失败，当前继续使用缓存";
 const MAX_RULE_SEARCH_PAGE_SIZE = 100;
 
 type RuleCatalogService = ReturnType<typeof createRuleCatalogService>;
@@ -77,6 +87,44 @@ function bundledRuleIndex(now = Date.now()): RemoteRuleIndex {
   };
 }
 
+export function getNextRuleCatalogRunAt(now = Date.now()): number {
+  const next = new Date(now);
+  next.setUTCHours(3, 17, 0, 0);
+  if (next.getTime() <= now) next.setUTCDate(next.getUTCDate() + 1);
+  return next.getTime();
+}
+
+function buildRuleCatalogStatus(
+  index: RemoteRuleIndex,
+  source: RuleCatalogStatusSource,
+  now = Date.now()
+): RuleCatalogStatusResponse {
+  const hasRemoteSnapshot = source !== "bundled";
+  return {
+    source,
+    sourceLabel: RULE_CATALOG_SOURCE_LABEL,
+    sourceUrl: RULE_CATALOG_SOURCE_URL,
+    geositeCount: index.geosite.length,
+    geoipCount: index.geoip.length,
+    totalRules: index.geosite.length + index.geoip.length,
+    fetchedAt: hasRemoteSnapshot ? index.fetchedAt : null,
+    expiresAt: hasRemoteSnapshot ? index.expiresAt : null,
+    schedule: RULE_CATALOG_CRON,
+    nextScheduledAt: getNextRuleCatalogRunAt(now),
+  };
+}
+
+function storedRuleCatalogSource(index: RemoteRuleIndex, now: number): RuleCatalogStatusSource {
+  return index.source === "remote" && index.expiresAt > now ? "remote" : "stale";
+}
+
+async function readRuleCatalogStatus(env: WorkerEnv, now = Date.now()): Promise<RuleCatalogStatusResponse> {
+  const stored = await env.SUB_KV!.get(RULE_INDEX_CACHE_KEY);
+  const index = stored ? parseCachedRuleIndex(stored) : null;
+  if (!index) return buildRuleCatalogStatus(bundledRuleIndex(now), "bundled", now);
+  return buildRuleCatalogStatus(index, storedRuleCatalogSource(index, now), now);
+}
+
 function getRuleCatalogService(env: WorkerEnv): RuleCatalogService | null {
   const kv = env.SUB_KV;
   if (!kv) return null;
@@ -130,6 +178,42 @@ export async function handleRulesSearch(request: Request, env: WorkerEnv): Promi
     const message = error instanceof Error ? error.message : "规则库暂不可用";
     const status = error instanceof RuleIndexUnavailableError ? 503 : 500;
     return json({ error: message, items: [], totalRules: 0, totalMatched: 0, source: "unavailable" }, status);
+  }
+}
+
+export async function handleRulesStatus(request: Request, env: WorkerEnv): Promise<Response> {
+  if (request.method !== "GET") return methodNotAllowed(["GET"]);
+  if (!env.SUB_KV) return json({ error: "KV未绑定" }, 503);
+
+  try {
+    return json(await readRuleCatalogStatus(env));
+  } catch {
+    return json({ error: "规则库状态暂不可用" }, 503);
+  }
+}
+
+export async function handleRulesRefresh(request: Request, env: WorkerEnv): Promise<Response> {
+  if (request.method !== "POST") return methodNotAllowed(["POST"]);
+  const service = getRuleCatalogService(env);
+  if (!service) {
+    return json({ error: "KV未绑定" }, 503);
+  }
+
+  try {
+    const result = await service.refreshRuleIndex({ force: true });
+    if (result.status === "unavailable") {
+      return json({ error: RULE_CATALOG_REFRESH_FAILED_MESSAGE }, 503);
+    }
+
+    const now = Date.now();
+    const response: RuleCatalogRefreshResponse = {
+      ...buildRuleCatalogStatus(result.index, storedRuleCatalogSource(result.index, now), now),
+      refreshStatus: result.status,
+      ...(result.status === "stale" ? { error: RULE_CATALOG_REFRESH_STALE_MESSAGE } : {}),
+    };
+    return json(response);
+  } catch {
+    return json({ error: RULE_CATALOG_REFRESH_FAILED_MESSAGE }, 503);
   }
 }
 

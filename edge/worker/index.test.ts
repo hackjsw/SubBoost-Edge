@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { KV_TTL, MAX_TEST_NODES } from "./constants";
 import { runScheduledSubscriptionUpdates } from "./edge-api";
 import worker, { handleRequest } from "./index";
-import { RULE_INDEX_CACHE_KEY } from "./rules-api";
+import {
+  getNextRuleCatalogRunAt,
+  RULE_CATALOG_CRON,
+  RULE_INDEX_CACHE_KEY,
+} from "./rules-api";
 import type { ExecutionContextLike, KVNamespaceLike, WorkerEnv } from "./types";
 
 class MemoryKv implements KVNamespaceLike {
@@ -478,6 +482,197 @@ describe("EdgeSub worker", () => {
     }
   });
 
+  it("protects rule status and refresh routes and enforces their methods", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+
+    expect((await handleRequest(new Request("https://edge.test/api/rules/status"), env)).status).toBe(401);
+    expect(
+      (await handleRequest(new Request("https://edge.test/api/rules/refresh", { method: "POST" }), env)).status
+    ).toBe(401);
+
+    const cookie = await login(env);
+    const statusMethod = await handleRequest(
+      authenticatedRequest("https://edge.test/api/rules/status", cookie, { method: "POST" }),
+      env
+    );
+    expect(statusMethod.status).toBe(405);
+    expect(statusMethod.headers.get("allow")).toBe("GET");
+
+    const refreshMethod = await handleRequest(
+      authenticatedRequest("https://edge.test/api/rules/refresh", cookie),
+      env
+    );
+    expect(refreshMethod.status).toBe(405);
+    expect(refreshMethod.headers.get("allow")).toBe("POST");
+  });
+
+  it("reads rule status from KV without contacting the upstream", async () => {
+    const now = Date.parse("2026-08-06T04:00:00.000Z");
+    const kv = new MemoryKv();
+    kv.values.set(
+      RULE_INDEX_CACHE_KEY,
+      JSON.stringify({
+        geosite: ["google", "youtube"],
+        geoip: ["cn"],
+        fetchedAt: now - 60_000,
+        expiresAt: now + 3_600_000,
+        source: "remote",
+      })
+    );
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const fetchImpl = vi.fn();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      const response = await handleRequest(
+        authenticatedRequest("https://edge.test/api/rules/status", cookie),
+        env
+      );
+      const data = (await response.json()) as Record<string, unknown>;
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      expect(data).toMatchObject({
+        source: "remote",
+        sourceLabel: "MetaCubeX/meta-rules-dat",
+        geositeCount: 2,
+        geoipCount: 1,
+        totalRules: 3,
+        fetchedAt: now - 60_000,
+        expiresAt: now + 3_600_000,
+        schedule: RULE_CATALOG_CRON,
+        nextScheduledAt: Date.parse("2026-08-07T03:17:00.000Z"),
+      });
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(kv.reads.filter((key) => key === RULE_INDEX_CACHE_KEY)).toHaveLength(1);
+    } finally {
+      nowSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports the bundled rule catalog when KV has no valid remote index", async () => {
+    for (const stored of [undefined, "not-json"]) {
+      const kv = new MemoryKv();
+      if (stored) kv.values.set(RULE_INDEX_CACHE_KEY, stored);
+      const env = createEnv(kv);
+      const cookie = await login(env);
+      const response = await handleRequest(
+        authenticatedRequest("https://edge.test/api/rules/status", cookie),
+        env
+      );
+      const data = (await response.json()) as {
+        source?: string;
+        totalRules?: number;
+        fetchedAt?: number | null;
+        expiresAt?: number | null;
+      };
+
+      expect(response.status).toBe(200);
+      expect(data.source).toBe("bundled");
+      expect(data.totalRules).toBeGreaterThan(0);
+      expect(data.fetchedAt).toBeNull();
+      expect(data.expiresAt).toBeNull();
+    }
+  });
+
+  it("refreshes the rule catalog on demand and returns the new status", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const fetchImpl = createRuleTreeFetch();
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      const response = await handleRequest(
+        authenticatedRequest("https://edge.test/api/rules/refresh", cookie, { method: "POST" }),
+        env
+      );
+      const data = (await response.json()) as Record<string, unknown>;
+
+      expect(response.status).toBe(200);
+      expect(data).toMatchObject({
+        source: "remote",
+        refreshStatus: "refreshed",
+        geositeCount: 1,
+        geoipCount: 1,
+        totalRules: 2,
+      });
+      expect(kv.values.has(RULE_INDEX_CACHE_KEY)).toBe(true);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps and reports a stale rule index when manual refresh fails", async () => {
+    const now = Date.now();
+    const kv = new MemoryKv();
+    kv.values.set(
+      RULE_INDEX_CACHE_KEY,
+      JSON.stringify({
+        geosite: ["google"],
+        geoip: ["cn"],
+        fetchedAt: now - 86_400_000,
+        expiresAt: now - 1,
+        source: "remote",
+      })
+    );
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const fetchImpl = vi.fn(async () =>
+      new Response("private upstream response", { status: 500 })
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      const response = await handleRequest(
+        authenticatedRequest("https://edge.test/api/rules/refresh", cookie, { method: "POST" }),
+        env
+      );
+      const data = (await response.json()) as Record<string, unknown>;
+
+      expect(response.status).toBe(200);
+      expect(data).toMatchObject({
+        source: "stale",
+        refreshStatus: "stale",
+        geositeCount: 1,
+        geoipCount: 1,
+        totalRules: 2,
+      });
+      expect(data.error).toBe("远端同步失败，当前继续使用缓存");
+      expect(JSON.stringify(data)).not.toContain("private upstream response");
+      expect(fetchImpl).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports manual rule refresh as unavailable when KV is not bound", async () => {
+    const env = createEnv();
+    const cookie = await login(env);
+    const response = await handleRequest(
+      authenticatedRequest("https://edge.test/api/rules/refresh", cookie, { method: "POST" }),
+      env
+    );
+    const data = (await response.json()) as Record<string, unknown>;
+
+    expect(response.status).toBe(503);
+    expect(data).toEqual({ error: "KV未绑定" });
+  });
+
+  it("calculates the next daily rule catalog run in UTC", () => {
+    expect(getNextRuleCatalogRunAt(Date.parse("2026-08-06T03:16:59.000Z"))).toBe(
+      Date.parse("2026-08-06T03:17:00.000Z")
+    );
+    expect(getNextRuleCatalogRunAt(Date.parse("2026-08-06T03:17:00.000Z"))).toBe(
+      Date.parse("2026-08-07T03:17:00.000Z")
+    );
+  });
+
   it("serves CN rule candidates through the Edge rules API", async () => {
     const kv = new MemoryKv();
     const env = createEnv(kv);
@@ -513,7 +708,7 @@ describe("EdgeSub worker", () => {
 
     try {
       worker.scheduled(
-        { cron: "17 3 * * *", scheduledTime: Date.parse("2026-07-21T03:17:00.000Z") },
+        { cron: RULE_CATALOG_CRON, scheduledTime: Date.parse("2026-07-21T03:17:00.000Z") },
         createEnv(kv),
         ctx
       );

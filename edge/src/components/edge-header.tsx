@@ -33,7 +33,7 @@ export function EdgeHeader() {
                 Edge
               </span>
             </div>
-            <span className="hidden text-[11px] text-[#60706d] sm:block">sub.ccad.cc.cd</span>
+            <span className="hidden text-[11px] text-[#60706d] sm:block">sub.cces.us.ci</span>
           </div>
         </Link>
 

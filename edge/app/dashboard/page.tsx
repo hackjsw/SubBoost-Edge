@@ -8,6 +8,7 @@ import type {
   RefreshSubscriptionResponse,
   Subscription,
 } from "@subboost/ui/dashboard/dashboard-types";
+import { RuleLibraryStatus } from "@edge/components/rule-library-status";
 
 async function readApiResponse<T>(response: Response): Promise<T> {
   const data = (await response.json().catch(() => ({}))) as T & { error?: string };
@@ -20,6 +21,7 @@ const edgeDashboardAdapter: DashboardSurfaceAdapter = {
   newSubscriptionHref: "/",
   templatesHref: null,
   settingsHref: null,
+  beforeStatsSlot: <RuleLibraryStatus />,
   autoUpdateIntervalPolicy: {
     defaultHours: 24,
     minHours: 1,

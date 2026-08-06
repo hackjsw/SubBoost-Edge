@@ -11,13 +11,14 @@ import { handleAuthLogin, handleAuthLogout, isAuthenticated, unauthorizedRespons
 import { handleClash, handleShorten, handleSub, handleTest } from "./subscription";
 import { methodNotAllowed } from "./http";
 import {
+  handleRulesRefresh,
   handleCnRuleCandidates,
   handleRulesSearch,
+  handleRulesStatus,
+  RULE_CATALOG_CRON,
   runScheduledRuleCatalogUpdate,
 } from "./rules-api";
 import type { ExecutionContextLike, ScheduledControllerLike, WorkerEnv } from "./types";
-
-const RULE_CATALOG_CRON = "17 3 * * *";
 
 function withSecurityHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -74,6 +75,12 @@ export async function handleRequest(
   }
   if (url.pathname === "/api/rules/search") {
     return authenticated ? handleRulesSearch(request, env) : unauthorizedResponse();
+  }
+  if (url.pathname === "/api/rules/status") {
+    return authenticated ? handleRulesStatus(request, env) : unauthorizedResponse();
+  }
+  if (url.pathname === "/api/rules/refresh") {
+    return authenticated ? handleRulesRefresh(request, env) : unauthorizedResponse();
   }
   if (url.pathname === "/api/rules/cn-candidates") {
     return authenticated ? handleCnRuleCandidates(request, env) : unauthorizedResponse();

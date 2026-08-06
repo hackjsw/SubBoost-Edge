@@ -10,7 +10,7 @@
     <img src="https://img.shields.io/badge/license-AGPL--3.0--only-green.svg" alt="AGPL-3.0-only">
   </p>
   <p>
-    <a href="https://sub.ccad.cc.cd">当前部署</a> ·
+    <a href="https://sub.cces.us.ci/">当前部署</a> ·
     <a href="https://github.com/SubBoost/subboost">上游源码</a> ·
     <a href="https://docs.subboost.org">上游文档</a>
   </p>
@@ -47,6 +47,7 @@ EdgeSub 将 SubBoost 的配置生成器和订阅管理能力部署到一个 Clou
 - 提供 `/dashboard` 管理已保存的订阅，可编辑、刷新、下载和删除记录。
 - 每 15 分钟扫描自动更新任务，并通过 KV metadata 跳过尚未到期的记录。
 - 每天同步一次 MetaCubeX 规则目录，搜索结果缓存到 KV 24 小时。
+- Dashboard 显示规则来源、数量和同步时间，并支持管理员立即同步。
 - GitHub API 受限时自动降级到官方目录页面，再失败时使用内置规则目录。
 - 构建时生成对应源码归档，并通过 `/subboost-edge-source.tar.gz` 向网络用户提供。
 
@@ -128,6 +129,8 @@ npm run edge:deploy
 | `/api/subscriptions` | 已保存订阅的管理接口 |
 | `/api/rules/search` | 远端规则目录搜索接口，需要登录 |
 | `/api/rules/cn-candidates` | 中国规则候选接口，需要登录 |
+| `/api/rules/status` | 规则目录缓存与下次同步状态，需要登录 |
+| `/api/rules/refresh` | 立即同步远端规则目录，仅接受登录后的 POST 请求 |
 | `/sub` | 通用 Base64 订阅输出 |
 | `/clash` | Clash YAML 转换输出 |
 | `/config/:token` | 已保存订阅的固定访问地址 |
