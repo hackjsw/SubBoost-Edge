@@ -123,4 +123,4 @@ packages:
     path: local
   edge:
     path: edge
-default_package: @subboost/config
+default_package: config
