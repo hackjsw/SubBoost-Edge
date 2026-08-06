@@ -74,3 +74,37 @@ Added an Edge-only light profile selector with seven allowlisted ACL4SSR configu
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Quick ACL4SSR template picker and deployment
+
+**Date**: 2026-08-07
+**Task**: Quick ACL4SSR template picker and deployment
+**Package**: config
+**Branch**: `main`
+
+### Summary
+
+Added the quick-mode ACL4SSR entry with seven official remote profiles, updated README documentation, verified the full test and build suite, pushed to GitHub, and deployed Cloudflare Worker version 2cf7dd68-6f1e-428e-b7d3-8f6eaa836223.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1ad803e` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
