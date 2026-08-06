@@ -89,7 +89,7 @@ json_get() {
   local file="$2"
   if [ ! -s "$file" ]; then return 0; fi
   if command -v python3 >/dev/null 2>&1; then
-    python3 - "$key" "$file" <<'PY'
+    if python3 -c '
 import json
 import sys
 key, path = sys.argv[1], sys.argv[2]
@@ -97,8 +97,10 @@ with open(path, "r", encoding="utf-8") as handle:
     data = json.load(handle)
 value = data.get(key, "")
 print("" if value is None else str(value))
-PY
-    return 0
+' "$key" "$file"
+    then
+      return 0
+    fi
   fi
   sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$file" | head -n 1
 }
