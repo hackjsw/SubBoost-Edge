@@ -227,6 +227,9 @@ describe("HomeLayout", () => {
       },
       smartNodeMatchingEnabled: true,
     });
+    expect(mocks.subscriptionDialog).not.toHaveProperty("conversionProfiles");
+    expect(mocks.subscriptionDialog).not.toHaveProperty("conversionProfileId");
+    expect(mocks.subscriptionDialog).not.toHaveProperty("setConversionProfileId");
     expect(mocks.quickMode).toMatchObject({
       conversionProfiles: subscription.conversionProfiles,
       conversionProfileId: subscription.conversionProfileId,

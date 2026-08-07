@@ -1,7 +1,6 @@
 "use client";
 
-import * as React from "react";
-import { Check, ChevronRight, Copy, Link as LinkIcon, Loader2, ShieldCheck } from "lucide-react";
+import { Check, Copy, Link as LinkIcon, Loader2 } from "lucide-react";
 import { Button } from "@subboost/ui/components/ui/button";
 import { Input } from "@subboost/ui/components/ui/input";
 import { Label } from "@subboost/ui/components/ui/label";
@@ -19,11 +18,6 @@ import {
   getAutoUpdateIntervalPolicyMinLabel,
   type AutoUpdateIntervalPolicy,
 } from "@subboost/core/subscription/auto-update-interval";
-import type {
-  ClashConversionProfile,
-  ClashConversionProfileId,
-} from "@subboost/core/subscription/clash-conversion-profiles";
-import { ClashConversionProfileDialog } from "./clash-conversion-profile-dialog";
 
 type Props = {
   open: boolean;
@@ -40,9 +34,6 @@ type Props = {
   linkStorageMode?: "account" | "rolling-kv" | "persistent-kv";
   smartNodeMatchingEnabled: boolean;
   setSmartNodeMatchingEnabled: (value: boolean) => void;
-  conversionProfiles?: readonly ClashConversionProfile[];
-  conversionProfileId?: ClashConversionProfileId;
-  setConversionProfileId?: (value: ClashConversionProfileId) => void;
   isCreatingSubscription: boolean;
   copied: boolean;
   isEditingExistingSubscription: boolean;
@@ -65,28 +56,18 @@ export function SubscriptionLinkDialog({
   linkStorageMode = "account",
   smartNodeMatchingEnabled,
   setSmartNodeMatchingEnabled,
-  conversionProfiles = [],
-  conversionProfileId,
-  setConversionProfileId,
   isCreatingSubscription,
   copied,
   isEditingExistingSubscription,
   handleCopyUrl,
   handleCreateSubscription,
 }: Props) {
-  const [profileDialogOpen, setProfileDialogOpen] = React.useState(false);
   const close = () => onOpenChange(false);
   const minAutoUpdateLabel = getAutoUpdateIntervalPolicyMinLabel(autoUpdatePolicy);
-  const selectedProfile = conversionProfiles.find((profile) => profile.id === conversionProfileId);
-
-  React.useEffect(() => {
-    if (!open) setProfileDialogOpen(false);
-  }, [open]);
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <LinkIcon className="h-5 w-5 text-indigo-400" />
@@ -118,29 +99,6 @@ export function SubscriptionLinkDialog({
                 maxLength={100}
               />
             </div>
-
-            {selectedProfile && setConversionProfileId && (
-              <div className="space-y-2">
-                <Label>Clash 规则方案</Label>
-                <button
-                  type="button"
-                  onClick={() => setProfileDialogOpen(true)}
-                  aria-haspopup="dialog"
-                  className="grid w-full grid-cols-[2.25rem_minmax(0,1fr)_1rem] items-center gap-3 rounded-lg border border-[#d7e0de] bg-white px-3 py-3 text-left transition-colors hover:border-[#9fc8c1] hover:bg-[#f4f8f7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087f70] focus-visible:ring-offset-2"
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#edf9f7] text-[#087f70]">
-                    <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-[#172321]">{selectedProfile.name}</span>
-                    <span className="mt-0.5 block truncate text-xs text-[#60706d]">
-                      {selectedProfile.provider} · {selectedProfile.tags.join(" · ")}
-                    </span>
-                  </span>
-                  <ChevronRight className="h-4 w-4 text-[#71807d]" aria-hidden="true" />
-                </button>
-              </div>
-            )}
 
             {autoUpdateAvailable && <div className="rounded-lg border border-white/10 bg-white/5 p-3">
               <div className="flex items-center justify-between gap-4">
@@ -264,19 +222,8 @@ export function SubscriptionLinkDialog({
             <Button onClick={close}>完成</Button>
           )}
         </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {selectedProfile && setConversionProfileId && (
-        <ClashConversionProfileDialog
-          open={profileDialogOpen}
-          onOpenChange={setProfileDialogOpen}
-          profiles={conversionProfiles}
-          value={selectedProfile.id}
-          onValueChange={setConversionProfileId}
-        />
-      )}
-    </>
+      </DialogContent>
+    </Dialog>
   );
 }
 

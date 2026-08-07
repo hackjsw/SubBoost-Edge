@@ -400,9 +400,6 @@ export function HomeLayout({
         linkStorageMode={subscription.linkStorageMode}
         smartNodeMatchingEnabled={subscription.smartNodeMatchingEnabled}
         setSmartNodeMatchingEnabled={subscription.setSmartNodeMatchingEnabled}
-        conversionProfiles={subscription.conversionProfiles}
-        conversionProfileId={subscription.conversionProfileId}
-        setConversionProfileId={subscription.setConversionProfileId}
         isCreatingSubscription={subscription.isCreatingSubscription}
         copied={subscription.copied}
         isEditingExistingSubscription={subscription.isEditingExistingSubscription}

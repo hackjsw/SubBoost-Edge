@@ -27,6 +27,23 @@ the saved value and fall back to the adapter default only when it is invalid.
 This prevents opening a dialog from silently undoing a choice made elsewhere
 on the same surface.
 
+Keep one editable control per subscription-scoped choice. When a generator
+already exposes a selector, the save dialog must submit the shared value without
+rendering another selector for the same state. A second writable control makes
+users repeat the choice and obscures which value is authoritative.
+
+```tsx
+<QuickMode
+  conversionProfileId={subscription.conversionProfileId}
+  setConversionProfileId={subscription.setConversionProfileId}
+/>
+<SubscriptionLinkDialog {...saveDialogProps} />
+```
+
+The save payload may still read `subscription.conversionProfileId`; the dialog
+itself should not receive profile-selection props unless product requirements
+explicitly move the sole editing surface into that dialog.
+
 ```tsx
 setProfileId((current) => {
   if (!isEditing && profiles.some((profile) => profile.id === current)) return current;

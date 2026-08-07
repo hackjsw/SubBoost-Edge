@@ -8,23 +8,13 @@ const captures = vi.hoisted(() => ({
   inputs: [] as any[],
   switches: [] as any[],
   dialogs: [] as any[],
-  profileDialogs: [] as any[],
 }));
 
 vi.mock("lucide-react", () => ({
   Check: () => React.createElement("span", null, "check-icon"),
-  ChevronRight: () => React.createElement("span", null, "chevron-icon"),
   Copy: () => React.createElement("span", null, "copy-icon"),
   Link: () => React.createElement("span", null, "link-icon"),
   Loader2: () => React.createElement("span", null, "loading-icon"),
-  ShieldCheck: () => React.createElement("span", null, "shield-icon"),
-}));
-
-vi.mock("./clash-conversion-profile-dialog", () => ({
-  ClashConversionProfileDialog: (props: any) => {
-    captures.profileDialogs.push(props);
-    return React.createElement("div", { "data-profile-dialog": String(props.open) });
-  },
 }));
 
 vi.mock("@subboost/ui/components/subscription/smart-node-matching-help", () => ({
@@ -133,7 +123,6 @@ describe("SubscriptionLinkDialog", () => {
     captures.inputs = [];
     captures.switches = [];
     captures.dialogs = [];
-    captures.profileDialogs = [];
   });
 
   it("renders creation controls and wires form callbacks", () => {
@@ -206,28 +195,14 @@ describe("SubscriptionLinkDialog", () => {
     expect(captures.buttons.at(-1)).toMatchObject({ disabled: true });
   });
 
-  it("shows the current clash profile only when the capability is provided", async () => {
-    const { CLASH_CONVERSION_PROFILES } = await import(
-      "@subboost/core/subscription/clash-conversion-profiles"
-    );
-    const setConversionProfileId = vi.fn();
+  it("does not repeat the generator's clash profile selector", () => {
     const html = renderToStaticMarkup(
       React.createElement(SubscriptionLinkDialog, {
         ...baseProps,
-        conversionProfiles: CLASH_CONVERSION_PROFILES,
-        conversionProfileId: "native",
-        setConversionProfileId,
       })
     );
 
-    expect(html).toContain("Clash 规则方案");
-    expect(html).toContain("EdgeSub 原生");
-    expect(html).toContain("aria-haspopup=\"dialog\"");
-    expect(captures.profileDialogs[0]).toMatchObject({
-      open: false,
-      value: "native",
-      profiles: CLASH_CONVERSION_PROFILES,
-      onValueChange: setConversionProfileId,
-    });
+    expect(html).not.toContain("Clash 规则方案");
+    expect(html).not.toContain("aria-haspopup=\"dialog\"");
   });
 });
