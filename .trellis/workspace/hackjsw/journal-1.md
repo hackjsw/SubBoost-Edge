@@ -108,3 +108,37 @@ Added the quick-mode ACL4SSR entry with seven official remote profiles, updated 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Remove duplicate ACL4SSR selector
+
+**Date**: 2026-08-07
+**Task**: Remove duplicate ACL4SSR selector
+**Package**: config
+**Branch**: `main`
+
+### Summary
+
+Made Quick Mode the sole ACL4SSR profile selection surface, removed the duplicate selector from save and update dialogs, preserved conversionProfileId persistence, added regression coverage and a Trellis UI state convention, and deployed Cloudflare version f2aa0be0-143a-4ba3-98dc-258b15595619.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `23d25d7` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
