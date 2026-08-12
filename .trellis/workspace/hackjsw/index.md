@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
-- **Last Active**: 2026-08-07
+- **Total Sessions**: 5
+- **Last Active**: 2026-08-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~144 | Active |
+| `journal-1.md` | ~178 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-08-12 | Raise Edge stored YAML limit | `8f79668` | `main` |
 | 4 | 2026-08-07 | Remove duplicate ACL4SSR selector | `23d25d7` | `main` |
 | 3 | 2026-08-07 | Quick ACL4SSR template picker and deployment | `1ad803e` | `main` |
 | 2 | 2026-08-06 | Add ACL4SSR conversion profiles | `527f628`, `b17c954` | `main` |

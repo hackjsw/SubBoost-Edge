@@ -142,3 +142,37 @@ Made Quick Mode the sole ACL4SSR profile selection surface, removed the duplicat
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Raise Edge stored YAML limit
+
+**Date**: 2026-08-12
+**Task**: Raise Edge stored YAML limit
+**Package**: config
+**Branch**: `main`
+
+### Summary
+
+Raised the Edge stored YAML limit from 2 MiB to 8 MiB, preserved the 20 MiB record guard, added create and update boundary tests, updated the storage contract, deployed Worker dcbb07c1-2ed6-4096-b33c-38799e617b01, and verified sub.cces.us.ci.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8f79668` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
