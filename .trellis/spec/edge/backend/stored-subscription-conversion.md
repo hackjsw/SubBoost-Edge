@@ -76,3 +76,59 @@ converter.searchParams.set("config", profile.configUrl);
 ```
 
 The raw route terminates recursion, and the shared catalog owns every remote URL.
+
+## Scenario: Stored subscription size boundaries
+
+### 1. Scope / Trigger
+
+- Trigger: Edge stores generated YAML and its refresh metadata together in one KV value, so YAML size and serialized-record size require separate guards.
+
+### 2. Signatures
+
+- `MAX_STORED_YAML_BYTES = 8 * 1024 * 1024` limits `yaml` on authenticated `POST /api/subscriptions` and `PUT /api/subscriptions/<token>` requests.
+- `MAX_STORED_SUBSCRIPTION_BYTES = 20 * 1024 * 1024` limits the final `JSON.stringify(record)` value before every subscription KV write.
+
+### 3. Contracts
+
+- Size checks use UTF-8 byte length, not JavaScript character count.
+- YAML at or below 8 MiB may be stored when the complete record remains at or below 20 MiB.
+- The 10,000 managed-node quota is independent of both byte limits; a valid record can exceed a byte limit before it exceeds the node quota.
+- Successful writes use the existing persistent `edge-config:<token>` record and do not add a TTL.
+
+### 4. Validation & Error Matrix
+
+- Empty YAML -> `400` with `请先生成配置`.
+- YAML above 8 MiB -> `413` with `配置文件过大`; create writes no record and update preserves the existing record.
+- Serialized record above 20 MiB -> `413` with `订阅数据过大，无法保存到 KV`; no KV write occurs.
+
+### 5. Good / Base / Bad Cases
+
+- Good: generated YAML above the former 2 MiB limit but no larger than 8 MiB is created or updated successfully.
+- Base: ordinary small YAML follows the same persistent-KV path.
+- Bad: increasing the YAML allowance must not weaken the separate 20 MiB whole-record guard.
+
+### 6. Tests Required
+
+- Worker route tests submit valid YAML above 2 MiB and assert successful create and update persistence.
+- Worker route tests submit YAML above 8 MiB and assert the exact 413 error plus no create/update KV side effects.
+- Worker route tests exceed 20 MiB through non-YAML record data and assert the existing whole-record 413 error plus no KV write.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+export const MAX_STORED_YAML_BYTES = 8 * 1024 * 1024;
+export const MAX_STORED_SUBSCRIPTION_BYTES = 8 * 1024 * 1024;
+```
+
+This makes the nominal YAML allowance unreachable once JSON metadata is included.
+
+#### Correct
+
+```typescript
+export const MAX_STORED_YAML_BYTES = 8 * 1024 * 1024;
+export const MAX_STORED_SUBSCRIPTION_BYTES = 20 * 1024 * 1024;
+```
+
+The YAML guard handles generated configuration size while the larger record guard protects the final KV value.

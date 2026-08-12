@@ -1,0 +1,30 @@
+{
+  "id": "raise-edge-yaml-limit",
+  "name": "raise-edge-yaml-limit",
+  "title": "Raise Edge stored YAML limit",
+  "description": "Raise the Edge stored YAML limit from 2 MiB to 8 MiB while retaining the 20 MiB total KV record guard, with boundary regression coverage.",
+  "status": "in_progress",
+  "dev_type": "backend",
+  "scope": "edge/worker",
+  "package": "edge",
+  "priority": "P2",
+  "creator": "hackjsw",
+  "assignee": "hackjsw",
+  "createdAt": "2026-08-12",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "edge/worker/constants.ts",
+    "edge/worker/index.test.ts",
+    ".trellis/spec/edge/backend/stored-subscription-conversion.md"
+  ],
+  "notes": "",
+  "meta": {}
+}

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { getClashConversionProfile } from "@subboost/core/subscription/clash-conversion-profiles";
-import { KV_TTL, MAX_TEST_NODES } from "./constants";
+import {
+  KV_TTL,
+  MAX_STORED_SUBSCRIPTION_BYTES,
+  MAX_STORED_YAML_BYTES,
+  MAX_TEST_NODES,
+} from "./constants";
 import { runScheduledSubscriptionUpdates } from "./edge-api";
 import worker, { handleRequest } from "./index";
 import {
@@ -245,6 +250,116 @@ describe("EdgeSub worker", () => {
     expect(await configResponse.text()).toContain("proxies: []");
     expect(kv.writes).toHaveLength(1);
     expect(kv.writes[0]?.expirationTtl).toBeUndefined();
+  });
+
+  it("stores YAML above the previous 2 MiB limit through create and update", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const previousLimit = 2 * 1024 * 1024;
+    const yaml = `payload: ${"a".repeat(previousLimit)}\n`;
+
+    expect(new TextEncoder().encode(yaml).byteLength).toBeGreaterThan(previousLimit);
+    expect(new TextEncoder().encode(yaml).byteLength).toBeLessThanOrEqual(MAX_STORED_YAML_BYTES);
+
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Large Edge Config", yaml }),
+      }),
+      env
+    );
+    const created = (await createResponse.json()) as { subscription: { token: string } };
+    const key = `edge-config:${created.subscription.token}`;
+
+    expect(createResponse.status).toBe(200);
+    expect(JSON.parse(kv.values.get(key) || "{}").yaml).toBe(yaml);
+
+    const updatedYaml = `payload: ${"b".repeat(previousLimit)}\n`;
+    const updateResponse = await handleRequest(
+      authenticatedRequest(`https://edge.test/api/subscriptions/${created.subscription.token}`, cookie, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Updated Large Edge Config", yaml: updatedYaml }),
+      }),
+      env
+    );
+
+    expect(updateResponse.status).toBe(200);
+    expect(JSON.parse(kv.values.get(key) || "{}").yaml).toBe(updatedYaml);
+  });
+
+  it("rejects YAML above 8 MiB without writing create or update data to KV", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const yaml = `payload: ${"a".repeat(MAX_STORED_YAML_BYTES)}\n`;
+
+    expect(new TextEncoder().encode(yaml).byteLength).toBeGreaterThan(MAX_STORED_YAML_BYTES);
+
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Oversized Edge Config", yaml }),
+      }),
+      env
+    );
+
+    expect(createResponse.status).toBe(413);
+    await expect(createResponse.json()).resolves.toEqual({ error: "配置文件过大" });
+    expect(Array.from(kv.values.keys()).filter((key) => key.startsWith("edge-config:"))).toHaveLength(0);
+
+    const baselineResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Baseline", yaml: "proxies: []\n" }),
+      }),
+      env
+    );
+    const baseline = (await baselineResponse.json()) as { subscription: { token: string } };
+    const key = `edge-config:${baseline.subscription.token}`;
+    const storedBeforeUpdate = kv.values.get(key);
+    kv.writes.length = 0;
+
+    const updateResponse = await handleRequest(
+      authenticatedRequest(`https://edge.test/api/subscriptions/${baseline.subscription.token}`, cookie, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Oversized Update", yaml }),
+      }),
+      env
+    );
+
+    expect(updateResponse.status).toBe(413);
+    await expect(updateResponse.json()).resolves.toEqual({ error: "配置文件过大" });
+    expect(kv.values.get(key)).toBe(storedBeforeUpdate);
+    expect(kv.writes).toHaveLength(0);
+  });
+
+  it("keeps the 20 MiB serialized subscription record guard", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const response = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Oversized KV Record",
+          yaml: "proxies: []\n",
+          config: { payload: "a".repeat(MAX_STORED_SUBSCRIPTION_BYTES) },
+        }),
+      }),
+      env
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: "订阅数据过大，无法保存到 KV" });
+    expect(Array.from(kv.values.keys()).filter((key) => key.startsWith("edge-config:"))).toHaveLength(0);
+    expect(kv.writes).toHaveLength(0);
   });
 
   it("converts allowlisted stored profiles while raw reads remain local", async () => {

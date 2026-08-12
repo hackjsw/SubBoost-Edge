@@ -24,7 +24,7 @@ export const TLS_PORTS = new Set(["443", "8443", "2053", "2083", "2087", "2096"]
 
 export const MAX_SOURCE_BYTES = 5 * 1024 * 1024;
 export const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
-export const MAX_STORED_YAML_BYTES = 2 * 1024 * 1024;
+export const MAX_STORED_YAML_BYTES = 8 * 1024 * 1024;
 export const MAX_STORED_SUBSCRIPTION_BYTES = 20 * 1024 * 1024;
 export const MAX_SOURCE_ITEMS = 1000;
 export const MAX_REMOTE_SOURCES = 32;
