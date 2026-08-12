@@ -24,7 +24,7 @@ Raise the Edge stored YAML limit from 2 MiB to 8 MiB while retaining the 20 MiB 
 - [x] A YAML payload larger than 8 MiB returns HTTP 413 with `配置文件过大` and is not written to KV.
 - [x] A serialized subscription record larger than 20 MiB still returns the existing KV-size error.
 - [x] Edge tests, type checks, lint, and production build pass.
-- [ ] The deployed custom domain returns HTTP 200 on the new Worker version.
+- [x] The deployed custom domain returns HTTP 200 on the new Worker version.
 
 ## Out Of Scope
 
