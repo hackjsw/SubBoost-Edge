@@ -19,6 +19,10 @@ local/src/generated/
 !edge/.dev.vars.example
 *.pem
 data/
+.agents/
+.codegraph/
+.codex/
+.trellis/
 .tmp/
 tmp/
 npm-debug.log*
