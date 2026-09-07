@@ -25,6 +25,7 @@ export interface WorkerEnv {
   GITHUB_TOKEN?: string;
   SUBCONVERTER_BACKEND?: string;
   ACL4SSR_CONFIG_URL?: string;
+  CRON_SECRET?: string;
 }
 
 export interface ExecutionContextLike {

@@ -114,6 +114,67 @@ describe("importSubscriptionFromUrl", () => {
     expect(result.errorInfo.httpStatus).toBe(403);
   });
 
+  it("treats HTML content-type as a parse failure and does not fall through to the browser UA", async () => {
+    const fetchText = vi.fn(async (request: SourceImportTransportRequest): Promise<SourceImportTransportResult> => {
+      if (request.userAgent.startsWith("v2rayN/")) {
+        return {
+          ok: true,
+          content: "<!doctype html><html><body>blocked</body></html>",
+          headers: { "content-type": "text/html; charset=utf-8" },
+        };
+      }
+      if (request.userAgent.startsWith("mihomo/")) {
+        return { ok: true, content: mihomoYaml, headers: { "content-type": "text/yaml" } };
+      }
+      return {
+        ok: true,
+        content: "<!doctype html><html lang=\"zh-CN\"><head></head><body>cover</body></html>",
+        headers: { "content-type": "text/html" },
+      };
+    });
+
+    const result = await importSubscriptionFromUrl({ url: "https://example.com/sub.yaml" }, { fetchText });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.parsedNodes).toHaveLength(1);
+    expect(fetchText.mock.calls.map((call) => call[0].userAgent)).toEqual(["v2rayN/7.20.4", "mihomo/1.19.24"]);
+  });
+
+  it("accepts a valid subscription body even when the server mislabels it as HTML", async () => {
+    const fetchText = vi.fn(async (): Promise<SourceImportTransportResult> => ({
+      ok: true,
+      content: mihomoYaml,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    }));
+
+    const result = await importSubscriptionFromUrl(
+      { url: "https://example.com/sub.yaml" },
+      { fetchText, userAgents: ["single"] }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.parsedNodes).toHaveLength(1);
+  });
+
+  it("stops after client user agents already returned HTML pages", async () => {
+    const html = "<!doctype html><html><head></head><body>blocked</body></html>";
+    const fetchText = vi.fn(async (): Promise<SourceImportTransportResult> => ({
+      ok: true,
+      content: html,
+      headers: { "content-type": "text/html" },
+    }));
+
+    const result = await importSubscriptionFromUrl({ url: "https://example.com/sub.yaml" }, { fetchText });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("检测到 HTML 页面内容");
+    expect(result.errorInfo.category).toBe("parse");
+    expect(fetchText).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects invalid urls before transport", async () => {
     const fetchText = vi.fn();
     const result = await importSubscriptionFromUrl({ url: "not a url" }, { fetchText });
@@ -210,6 +271,52 @@ describe("importSubscriptionFromUrl", () => {
         timeoutMs: 8000,
       })
     );
+  });
+
+  it("does not repeat a same-URL userinfo request when content already returned the header", async () => {
+    const fetchText = vi.fn(async (): Promise<SourceImportTransportResult> => ({
+      ok: true,
+      content: mihomoYaml,
+      headers: { "subscription-userinfo": "upload=1; total=2" },
+    }));
+
+    const result = await importSubscriptionFromUrl(
+      {
+        url: "https://example.com/sub.yaml",
+        userinfoUrl: "https://example.com/sub.yaml",
+        userinfoUserAgent: "custom-userinfo",
+      },
+      { fetchText, userAgents: ["content-agent"] }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(fetchText).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one total deadline across user-agent attempts", async () => {
+    let elapsedMs = 0;
+    const timeouts: number[] = [];
+    const fetchText = vi.fn(
+      async (request: SourceImportTransportRequest): Promise<SourceImportTransportResult> => {
+        timeouts.push(request.timeoutMs);
+        elapsedMs += 6000;
+        return { ok: true, content: "", headers: {} };
+      }
+    );
+
+    const result = await importSubscriptionFromUrl(
+      { url: "https://example.com/sub.yaml" },
+      {
+        fetchText,
+        userAgents: ["first", "second", "third"],
+        timeoutMs: 10_000,
+        now: () => elapsedMs,
+      }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(timeouts).toEqual([10_000, 4000]);
+    expect(fetchText).toHaveBeenCalledTimes(2);
   });
 
   it("ignores invalid supplemental userinfo URLs", async () => {
@@ -388,5 +495,115 @@ describe("importSubscriptionFromUrl", () => {
     expect(result.error).toBe("HTTP 502");
     expect(result.responseStatus).toBe(502);
     expect(result.publicReason).toBe("bad gateway");
+  });
+
+  it("returns a stable timeout when an injected transport never settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchText = vi.fn(
+        () => new Promise<SourceImportTransportResult>(() => {})
+      );
+      const pending = importSubscriptionFromUrl(
+        { url: "https://example.com/sub.yaml" },
+        {
+          fetchText,
+          userAgents: ["only"],
+          timeoutMs: 25,
+          totalTimeoutMs: 25,
+        }
+      );
+
+      await vi.advanceTimersByTimeAsync(30);
+      await expect(pending).resolves.toMatchObject({
+        ok: false,
+        error: "订阅请求超时",
+        errorInfo: { category: "network" },
+      });
+      expect(fetchText).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops attempts at the configured transport-call budget", async () => {
+    const fetchText = vi.fn(async (): Promise<SourceImportTransportResult> => ({
+      ok: true,
+      content: "",
+      headers: {},
+    }));
+
+    const result = await importSubscriptionFromUrl(
+      { url: "https://example.com/sub.yaml" },
+      {
+        fetchText,
+        userAgents: ["first", "second", "third"],
+        maxRequests: 1,
+      }
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: "订阅请求次数过多",
+      errorInfo: { category: "network" },
+    });
+    expect(fetchText).toHaveBeenCalledOnce();
+  });
+
+  it("does not accept an oversized supplemental user-info payload", async () => {
+    const fetchText = vi.fn(async (request: SourceImportTransportRequest): Promise<SourceImportTransportResult> => {
+      if (request.purpose === "userinfo") {
+        return {
+          ok: true,
+          content: "x".repeat(32),
+          headers: { "subscription-userinfo": "total=1" },
+        };
+      }
+      return { ok: true, content: mihomoYaml, headers: {} };
+    });
+
+    const result = await importSubscriptionFromUrl(
+      {
+        url: "https://example.com/sub.yaml",
+        userinfoUrl: "https://example.net/userinfo",
+      },
+      {
+        fetchText,
+        userAgents: ["only"],
+        userinfoMaxBytes: 8,
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.headers).not.toHaveProperty("subscription-userinfo");
+  });
+
+  it("keeps supplemental user-info bounded even when a larger override is requested", async () => {
+    const fetchText = vi.fn(async (request: SourceImportTransportRequest): Promise<SourceImportTransportResult> => {
+      if (request.purpose === "userinfo") {
+        return {
+          ok: true,
+          content: "x".repeat(256 * 1024 + 1),
+          headers: { "subscription-userinfo": "total=1" },
+        };
+      }
+      return { ok: true, content: mihomoYaml, headers: {} };
+    });
+
+    const result = await importSubscriptionFromUrl(
+      {
+        url: "https://example.com/sub.yaml",
+        userinfoUrl: "https://example.net/userinfo",
+      },
+      {
+        fetchText,
+        userAgents: ["only"],
+        userinfoMaxBytes: 1024 * 1024,
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.headers).not.toHaveProperty("subscription-userinfo");
   });
 });

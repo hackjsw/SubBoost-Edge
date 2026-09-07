@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { List, Search } from "lucide-react";
+import { Activity, List, Search } from "lucide-react";
 import { Badge } from "@subboost/ui/components/ui/badge";
 import { Button } from "@subboost/ui/components/ui/button";
 import { confirmDialog } from "@subboost/ui/components/ui/confirm-dialog";
@@ -11,6 +11,7 @@ import { toast } from "@subboost/ui/components/ui/toaster";
 import { DEFAULT_NODE_NAME_TEMPLATE } from "@subboost/core/node-name-template";
 import { useConfigStore, type SubscriptionSource } from "@subboost/ui/store/config-store";
 import { useProductInteractionAdapter } from "@subboost/ui/product/interactions";
+import { useProductApiAdapter, type NodeConnectivityResult } from "@subboost/ui/product/api-adapter";
 import { SectionHeader } from "../section-header";
 import { NodeManagementBulkEditDialog } from "./node-management/bulk-edit-dialog";
 import { NodeManagementNodeList } from "./node-management/node-list";
@@ -98,10 +99,40 @@ export function NodeManagementSection({
   const [listenerPortEnabled, setListenerPortEnabled] = React.useState(false);
   const listenerPortSwitchId = React.useId();
   const interactions = useProductInteractionAdapter();
+  const productApi = useProductApiAdapter();
 
   const [listenerPortDrafts, setListenerPortDrafts] = React.useState<Record<string, string>>({});
   const [listenerPortErrors, setListenerPortErrors] = React.useState<Record<string, string>>({});
   const [orderDrafts, setOrderDrafts] = React.useState<Record<string, string>>({});
+  const [connectivityResults, setConnectivityResults] = React.useState<Record<string, NodeConnectivityResult>>({});
+  const [testingConnectivity, setTestingConnectivity] = React.useState(false);
+  const [connectivityTestSummary, setConnectivityTestSummary] = React.useState<string | null>(null);
+
+  const testConnectivity = React.useCallback(async () => {
+    if (!productApi.connectivity?.testNodes || nodes.length === 0 || testingConnectivity) return;
+    setTestingConnectivity(true);
+    setConnectivityTestSummary(`正在测试 ${nodes.length} 个节点...`);
+    const startedAt = Date.now();
+    try {
+      const results = await productApi.connectivity.testNodes(nodes);
+      setConnectivityResults(
+        Object.fromEntries(results.filter((result) => typeof result.name === "string").map((result) => [result.name, result]))
+      );
+      const reachable = results.filter((result) => result.status === "ok").length;
+      const elapsed = Date.now() - startedAt;
+      const timeoutCount = results.filter((result) => result.reason === "timeout").length;
+      const invalidCount = results.filter((result) => result.reason === "invalid_target").length;
+      const detail = [timeoutCount ? `${timeoutCount} 个超时` : "", invalidCount ? `${invalidCount} 个地址无效` : ""]
+        .filter(Boolean)
+        .join("，");
+      setConnectivityTestSummary(`最近一次：${reachable}/${results.length} 可达，耗时 ${elapsed} ms${detail ? `，${detail}` : ""}`);
+      toast({ title: `连通性测试完成：${reachable}/${results.length} 个节点可达`, description: detail || `耗时 ${elapsed} ms` });
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : "节点连通性测试失败", variant: "destructive" });
+    } finally {
+      setTestingConnectivity(false);
+    }
+  }, [nodes, productApi.connectivity, testingConnectivity]);
 
   const hasConfiguredListenerPorts = React.useMemo(
     () => Object.values(listenerPorts).some((port) => Number.isInteger(port) && port >= 1 && port <= 65535),
@@ -464,6 +495,25 @@ export function NodeManagementSection({
             >
               批量编辑
             </Button>
+            {productApi.connectivity?.testNodes && (
+              <React.Fragment>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void testConnectivity()}
+                disabled={nodes.length === 0 || testingConnectivity}
+                className="h-7 px-2 text-xs"
+                title="从 Cloudflare 测试节点地址的 HTTP/HTTPS 连通性"
+              >
+                <Activity className="mr-1 h-3.5 w-3.5" />
+                {testingConnectivity ? "测试中..." : "测试连通性"}
+              </Button>
+              {connectivityTestSummary && (
+                <span className="text-[10px] text-white/50" role="status">{connectivityTestSummary}</span>
+              )}
+              </React.Fragment>
+            )}
           </div>
 
           <NodeManagementBulkEditDialog
@@ -505,6 +555,7 @@ export function NodeManagementSection({
             isListenerPortVisible={isListenerPortVisible}
             removeNode={removeNode}
             restoreDeletedNode={restoreDeletedNode}
+            connectivityResults={connectivityResults}
           />
         </div>
       )}

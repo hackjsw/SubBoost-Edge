@@ -1,21 +1,42 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 const UPSTREAM_COMMIT = "ebc40a202adeaca25c88ca3bbbf085412f6e08f5";
 const archiveName = "subboost-edge-source.tar.gz";
+const sourcePrefix = "subboost-edge-source/";
 const edgeRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const repositoryRoot = path.resolve(edgeRoot, "..");
-const archivePath = path.join(edgeRoot, "public", archiveName);
-const archiveRelativePath = path.relative(repositoryRoot, archivePath).replaceAll(path.sep, "/");
+const defaultRepositoryRoot = path.resolve(edgeRoot, "..");
+const defaultArchivePath = path.join(edgeRoot, "public", archiveName);
 
-const excludedDirectories = new Set([
+const allowedRootFiles = new Set([
+  ".dockerignore",
+  ".gitattributes",
+  ".gitignore",
+  "LICENSE",
+  "README-CN.md",
+  "README.md",
+  "eslint.config.mjs",
+  "package-lock.json",
+  "package.json",
+  "tsconfig.json",
+  "vitest.config.ts",
+  "vitest.core.config.ts",
+]);
+const allowedDirectoryPrefixes = ["docs/", "edge/", "local/", "packages/", "scripts/"];
+const excludedDirectoryNames = new Set([
   ".git",
+  ".trellis",
+  ".agents",
+  ".codex",
   ".next",
   ".wrangler",
   ".turbo",
   ".codegraph",
+  "__pycache__",
   "node_modules",
   "out",
   "dist",
@@ -23,34 +44,86 @@ const excludedDirectories = new Set([
   ".tmp",
   "tmp",
   "data",
+  "generated",
 ]);
 
-function shouldExcludeFile(relativePath) {
-  const name = path.posix.basename(relativePath);
-  if (relativePath === archiveRelativePath) return true;
-  if (name === "next-env.d.ts" || name === ".DS_Store") return true;
-  if (name.endsWith(".tsbuildinfo") || name.endsWith(".pem")) return true;
-  if (name === ".env" || (name.startsWith(".env.") && name !== ".env.example")) return true;
-  if (name === ".dev.vars" || (name.startsWith(".dev.vars.") && name !== ".dev.vars.example")) return true;
-  return /^(npm|yarn)-debug\.log/.test(name) || name === "yarn-error.log";
+function normalizeRelativePath(relativePath) {
+  if (typeof relativePath !== "string") return "";
+  return relativePath.replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
-async function collectSourceFiles(directory = repositoryRoot) {
+export function isAllowedSourcePath(candidate) {
+  const relativePath = normalizeRelativePath(candidate);
+  if (!relativePath || relativePath.startsWith("../") || path.posix.isAbsolute(relativePath)) return false;
+
+  const segments = relativePath.split("/");
+  // Reject traversal segments before path.join can normalize them away.
+  if (segments.some((segment) => segment === "." || segment === "..")) return false;
+  if (segments.some((segment) => excludedDirectoryNames.has(segment) || segment.startsWith(".next.bak-"))) {
+    return false;
+  }
+  if (!allowedRootFiles.has(relativePath) && !allowedDirectoryPrefixes.some((prefix) => relativePath.startsWith(prefix))) {
+    return false;
+  }
+
+  const name = path.posix.basename(relativePath);
+  if (name === archiveName || name.startsWith(`${archiveName}.`)) return false;
+  if (name === "next-env.d.ts" || name === ".DS_Store" || name === ".npmrc") return false;
+  if (name.endsWith(".tsbuildinfo") || name.endsWith(".pem") || name.endsWith(".pyc")) return false;
+  if (name === ".env" || (name.startsWith(".env.") && name !== ".env.example")) return false;
+  if (name === ".dev.vars" || (name.startsWith(".dev.vars.") && name !== ".dev.vars.example")) return false;
+  return !/^(npm|yarn)-debug\.log/.test(name) && name !== "yarn-error.log";
+}
+
+function runGit(repositoryRoot, args) {
+  const result = spawnSync("git", args, {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || "unknown error").trim();
+    throw new Error(`Git metadata is required to build the Edge source archive: ${detail}`);
+  }
+  return result.stdout;
+}
+
+function getGitState(repositoryRoot) {
+  const commit = runGit(repositoryRoot, ["rev-parse", "--verify", "HEAD"]).trim();
+  const dirty =
+    runGit(repositoryRoot, [
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=no",
+      "--",
+      ...allowedRootFiles,
+      ...allowedDirectoryPrefixes.map((prefix) => prefix.slice(0, -1)),
+    ]).length > 0;
+  return { commit, dirty };
+}
+
+export async function collectSourceFiles(repositoryRoot = defaultRepositoryRoot) {
+  // Only committed/indexed paths are eligible. An arbitrary untracked file in
+  // an allowlisted directory must not become a release artifact by accident.
+  const relativePaths = runGit(repositoryRoot, ["ls-files", "-z", "--cached"])
+    .split("\0")
+    .filter(isAllowedSourcePath)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   const files = [];
-  const entries = await readdir(directory, { withFileTypes: true });
-  entries.sort((left, right) => left.name.localeCompare(right.name, "en"));
 
-  for (const entry of entries) {
-    if (entry.isSymbolicLink()) continue;
-    if (entry.isDirectory() && excludedDirectories.has(entry.name)) continue;
-
-    const absolutePath = path.join(directory, entry.name);
-    const relativePath = path.relative(repositoryRoot, absolutePath).replaceAll(path.sep, "/");
-    if (entry.isDirectory()) {
-      files.push(...(await collectSourceFiles(absolutePath)));
-    } else if (entry.isFile() && !shouldExcludeFile(relativePath)) {
-      files.push({ absolutePath, relativePath: `subboost-edge-source/${relativePath}` });
+  for (const relativePath of relativePaths) {
+    const absolutePath = path.join(repositoryRoot, ...relativePath.split("/"));
+    let fileStat;
+    try {
+      fileStat = await lstat(absolutePath);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
     }
+    if (fileStat.isSymbolicLink()) {
+      throw new Error(`Source archive does not accept symbolic links: ${relativePath}`);
+    }
+    if (fileStat.isFile()) files.push({ absolutePath, relativePath: `${sourcePrefix}${relativePath}` });
   }
 
   return files;
@@ -104,34 +177,80 @@ function createTarEntry(relativePath, content, mode = 0o644) {
   return [header, content, padding];
 }
 
-async function buildArchive() {
-  const files = await collectSourceFiles();
-  const manifest = Buffer.from(
+function hashSourceEntries(entries) {
+  const hash = createHash("sha256");
+  for (const entry of entries) {
+    hash.update(entry.relativePath);
+    hash.update("\0");
+    hash.update(String(entry.mode));
+    hash.update("\0");
+    hash.update(String(entry.content.length));
+    hash.update("\0");
+    hash.update(entry.content);
+  }
+  return hash.digest("hex");
+}
+
+async function writeAtomic(target, content) {
+  await mkdir(path.dirname(target), { recursive: true });
+  const temporary = `${target}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(temporary, content);
+    await rename(temporary, target);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+export async function buildArchive(options = {}) {
+  const repositoryRoot = path.resolve(options.repositoryRoot || defaultRepositoryRoot);
+  const outputPath = path.resolve(options.archivePath || defaultArchivePath);
+  const sidecarPath = `${outputPath}.sha256`;
+  const { commit, dirty } = getGitState(repositoryRoot);
+  const files = await collectSourceFiles(repositoryRoot);
+  const entries = await Promise.all(
+    files.map(async (file) => ({
+      ...file,
+      content: await readFile(file.absolutePath),
+      mode: /\.(?:sh|cjs)$/.test(file.relativePath) ? 0o755 : 0o644,
+    })),
+  );
+  const sourceDigest = hashSourceEntries(entries);
+  const sourceInfo = Buffer.from(
     [
       "EdgeSub complete corresponding source",
       "",
       "License: AGPL-3.0-only",
       "Upstream: https://github.com/SubBoost/subboost",
       `Upstream commit: ${UPSTREAM_COMMIT}`,
+      `Source commit: ${commit}`,
+      `Source state: ${dirty ? "dirty" : "clean"}`,
+      `Source tree SHA-256: ${sourceDigest}`,
+      `Archive SHA-256: see ${path.basename(sidecarPath)}`,
       "",
       "Build: npm ci && npm run edge:build",
       "Deploy: npm run edge:deploy",
       "",
     ].join("\n"),
-    "utf8"
+    "utf8",
   );
-  const chunks = createTarEntry("subboost-edge-source/SOURCE_INFO.txt", manifest);
+  const chunks = createTarEntry(`${sourcePrefix}SOURCE_INFO.txt`, sourceInfo);
 
-  for (const file of files) {
-    const content = await readFile(file.absolutePath);
-    const executable = /\.(?:sh|cjs)$/.test(file.relativePath);
-    chunks.push(...createTarEntry(file.relativePath, content, executable ? 0o755 : 0o644));
+  for (const entry of entries) {
+    chunks.push(...createTarEntry(entry.relativePath, entry.content, entry.mode));
   }
-
   chunks.push(Buffer.alloc(1024));
-  await mkdir(path.dirname(archivePath), { recursive: true });
-  await writeFile(archivePath, gzipSync(Buffer.concat(chunks), { level: 9 }));
-  console.log(`Created ${archiveRelativePath} with ${files.length + 1} source files`);
+
+  const archive = gzipSync(Buffer.concat(chunks), { level: 9 });
+  const archiveDigest = createHash("sha256").update(archive).digest("hex");
+  await writeAtomic(outputPath, archive);
+  await writeAtomic(sidecarPath, `${archiveDigest}  ${path.basename(outputPath)}\n`);
+  console.log(
+    `Created ${path.relative(repositoryRoot, outputPath).replaceAll(path.sep, "/")} with ${entries.length + 1} source files (${archiveDigest})`,
+  );
+  return { archiveDigest, archivePath: outputPath, commit, dirty, sidecarPath, sourceDigest };
 }
 
-await buildArchive();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await buildArchive();
+}

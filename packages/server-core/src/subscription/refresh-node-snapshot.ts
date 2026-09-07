@@ -31,6 +31,8 @@ type UrlNodeFetchResult = {
   nodes: ParsedNode[];
   errors?: string[];
   headers?: Record<string, string>;
+  /** URL adapters may set this when their importer attempted supplemental user-info. */
+  userinfoFetchAttempted?: boolean;
   error?: string;
   errorInfo?: {
     category?: SubscriptionImportErrorCategory;
@@ -141,6 +143,7 @@ export async function refreshNodeSnapshot(
   let detachedSourceCount = 0;
   let failedSourceCount = 0;
   const failedSources: RefreshNodeSnapshotFailedSource[] = [];
+  const sourcesWithAttemptedUserInfo = new Set<string>();
 
   const recordFailedSource = (
     source: SavedSource,
@@ -211,6 +214,7 @@ export async function refreshNodeSnapshot(
         typeof options.fetchUrlUserInfo === "function" &&
         shouldFetchSupplementalUserInfoForSource(source)
       ) {
+        sourcesWithAttemptedUserInfo.add(source.id);
         const headers = await options.fetchUrlUserInfo(source);
         if (headers) {
           mergeResponseMetadata(headers);
@@ -230,6 +234,9 @@ export async function refreshNodeSnapshot(
       const fetched = await options.fetchUrlNodes(source);
       mergeResponseMetadata(fetched.headers);
       const userInfoHeader = fetched.headers?.["subscription-userinfo"];
+      if (userInfoHeader || fetched.userinfoFetchAttempted === true) {
+        sourcesWithAttemptedUserInfo.add(source.id);
+      }
       const rawUserInfo = userInfoHeader ? parseSubscriptionUserInfo(userInfoHeader) : undefined;
       const resolvedUserInfo = resolveSubscriptionUserInfo(
         rawUserInfo,
@@ -333,7 +340,9 @@ export async function refreshNodeSnapshot(
   ) {
     for (const source of savedSources) {
       if (source.type !== "url" || source.useProxyProviders) continue;
+      if (sourcesWithAttemptedUserInfo.has(source.id)) continue;
       if (!shouldFetchSupplementalUserInfoForSource(source) && hasSubscriptionUserInfo(subscriptionInfo)) continue;
+      sourcesWithAttemptedUserInfo.add(source.id);
       const headers = await options.fetchUrlUserInfo(source);
       if (!headers) continue;
       mergeResponseMetadata(headers);

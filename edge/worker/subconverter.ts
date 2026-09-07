@@ -7,6 +7,7 @@ type ConvertClashSubscriptionOptions = {
   configUrl: string;
   method?: "GET" | "HEAD";
   responseHeaders?: HeadersInit;
+  requireExplicitBackend?: boolean;
 };
 
 export async function convertClashSubscription({
@@ -15,8 +16,21 @@ export async function convertClashSubscription({
   configUrl,
   method = "GET",
   responseHeaders,
+  requireExplicitBackend = false,
 }: ConvertClashSubscriptionOptions): Promise<Response> {
-  const converterUrl = new URL(env.SUBCONVERTER_BACKEND || SUBCONVERTER_BACKEND);
+  const configuredBackend = env.SUBCONVERTER_BACKEND?.trim();
+  if (requireExplicitBackend && !configuredBackend) {
+    const headers = new Headers(responseHeaders);
+    headers.set("Cache-Control", "no-store");
+    headers.set("Content-Type", "text/plain;charset=UTF-8");
+    headers.set("X-Content-Type-Options", "nosniff");
+    return new Response(method === "HEAD" ? null : "Error: subconverter backend is not configured", {
+      status: 503,
+      headers,
+    });
+  }
+
+  const converterUrl = new URL(configuredBackend || SUBCONVERTER_BACKEND);
   if (!converterUrl.pathname || converterUrl.pathname === "/") converterUrl.pathname = "/sub";
   converterUrl.searchParams.set("target", "clash");
   converterUrl.searchParams.set("url", sourceUrl);
@@ -45,6 +59,13 @@ export async function convertClashSubscription({
       headers,
     });
   } catch {
-    return new Response(method === "HEAD" ? null : "Error: subconverter request failed", { status: 502 });
+    const headers = new Headers(responseHeaders);
+    headers.set("Cache-Control", "no-store");
+    headers.set("Content-Type", "text/plain;charset=UTF-8");
+    headers.set("X-Content-Type-Options", "nosniff");
+    return new Response(method === "HEAD" ? null : "Error: subconverter request failed", {
+      status: 502,
+      headers,
+    });
   }
 }

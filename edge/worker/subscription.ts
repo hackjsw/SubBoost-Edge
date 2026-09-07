@@ -11,12 +11,13 @@ import {
   MAX_SOURCE_ITEMS,
   MAX_TEST_NODES,
   REGION_CONFIG,
-  TLS_PORTS,
 } from "./constants";
 import { byteLength, safeBase64Decode, utf8ToBase64 } from "./encoding";
 import { json, methodNotAllowed, readJsonBody } from "./http";
 import { assertPublicHttpUrl, fetchRemoteText } from "./remote-fetch";
+import { measureTcpConnectivity } from "./tcp-connectivity";
 import { convertClashSubscription } from "./subconverter";
+import { EDGE_OUTBOUND_CONCURRENCY, mapWithConcurrency } from "./concurrency";
 import type { EdgeNode, ExecutionContextLike, SubRequestParams, WorkerEnv } from "./types";
 
 type ExtractedNode = {
@@ -254,7 +255,10 @@ function parseNodeList(lines: string[]): ExtractedNode[] {
 
 async function extractNodes(lines: string[]): Promise<ExtractedNode[]> {
   let remoteCount = 0;
-  const tasks = lines.slice(0, MAX_SOURCE_ITEMS).map(async (rawLine) => {
+  const tasks = await mapWithConcurrency(
+    lines.slice(0, MAX_SOURCE_ITEMS),
+    EDGE_OUTBOUND_CONCURRENCY,
+    async (rawLine) => {
     const line = rawLine.trim();
     if (!line) return [];
     if (!/^https?:\/\//i.test(line)) return parseNodeList([line]);
@@ -272,9 +276,10 @@ async function extractNodes(lines: string[]): Promise<ExtractedNode[]> {
     } catch {
       return [];
     }
-  });
+    }
+  );
 
-  return (await Promise.all(tasks)).flat();
+  return tasks.flat();
 }
 
 export function identifyRegion(name: string, host = ""): string {
@@ -490,6 +495,7 @@ export async function handleClash(
     sourceUrl: subUrl.toString(),
     configUrl,
     method: request.method === "HEAD" ? "HEAD" : "GET",
+    requireExplicitBackend: Boolean(params.id),
   });
 }
 
@@ -500,36 +506,31 @@ export async function handleTest(request: Request): Promise<Response> {
   if (!nodes) return json({ error: "nodes must be an array" }, 400);
   if (nodes.length > MAX_TEST_NODES) return json({ error: `最多测试 ${MAX_TEST_NODES} 个节点` }, 413);
 
-  const results = await Promise.all(
-    nodes.map(async (value) => {
+  const results = await mapWithConcurrency(
+    nodes,
+    EDGE_OUTBOUND_CONCURRENCY,
+    async (value) => {
       const node = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-      const target = stringValue(node.ip);
+      const target = stringValue(node.ip ?? node.server);
       const port = String(node.port || "443");
       if (!target || !/^\d{1,5}$/.test(port) || Number(port) > 65535) {
-        return { ...node, status: "fail", latency: -1 };
+        return { ...node, status: "fail", latency: -1, reason: "invalid_target" as const };
       }
 
       try {
-        const scheme = TLS_PORTS.has(port) ? "https" : "http";
-        const targetUrl = assertPublicHttpUrl(`${scheme}://${target}:${port}/`);
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2500);
         const startedAt = Date.now();
-        try {
-          await fetch(targetUrl, {
-            method: "GET",
-            headers: { "User-Agent": "EdgeSub/2.6", Accept: "text/html,*/*" },
-            signal: controller.signal,
-            redirect: "manual",
-          });
-          return { ...node, status: "ok", latency: Date.now() - startedAt };
-        } finally {
-          clearTimeout(timeout);
-        }
-      } catch {
-        return { ...node, status: "fail", latency: -1 };
+        await measureTcpConnectivity(target, Number(port), 2500);
+        return { ...node, status: "ok", latency: Date.now() - startedAt };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        return {
+          ...node,
+          status: "fail",
+          latency: -1,
+          reason: /超时|timeout/i.test(message) ? "timeout" as const : "unreachable" as const,
+        };
       }
-    })
+    }
   );
 
   results.sort((a, b) => {

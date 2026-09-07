@@ -9,6 +9,7 @@ import { toast } from "@subboost/ui/components/ui/toaster";
 import { formatNodeNameFromTemplate } from "@subboost/core/node-name-template";
 import { cn } from "@subboost/ui/lib/utils";
 import type { ParsedNode } from "@subboost/core/types/node";
+import type { NodeConnectivityResult } from "@subboost/ui/product/api-adapter";
 
 type NodeNameParts = {
   baseName: string;
@@ -49,6 +50,7 @@ export function NodeManagementNodeList({
   isListenerPortVisible,
   removeNode,
   restoreDeletedNode,
+  connectivityResults,
 }: {
   nodes: ParsedNode[];
   deletedMarkedNodes: DeletedMarkedNode[];
@@ -76,6 +78,7 @@ export function NodeManagementNodeList({
   isListenerPortVisible: boolean;
   removeNode: (nodeName: string) => void;
   restoreDeletedNode: (originName: string) => void;
+  connectivityResults: Record<string, NodeConnectivityResult>;
 }) {
   return (
     <>
@@ -187,6 +190,23 @@ export function NodeManagementNodeList({
                             </button>
                           )}
                         </span>
+                        {connectivityResults[node.name] && (
+                          <span
+                            className={cn(
+                              "whitespace-nowrap text-[10px]",
+                              connectivityResults[node.name].status === "ok" ? "text-green-300" : "text-red-300"
+                            )}
+                          title="最近一次从 Cloudflare 发起的连通性测试结果"
+                        >
+                            {connectivityResults[node.name].status === "ok"
+                              ? `${connectivityResults[node.name].latency} ms`
+                              : connectivityResults[node.name].reason === "timeout"
+                                ? "超时"
+                                : connectivityResults[node.name].reason === "invalid_target"
+                                  ? "地址无效"
+                                  : "不可达"}
+                          </span>
+                        )}
                         {isListenerPortVisible && (
                           <>
                             <span className="text-[10px] text-white/40 whitespace-nowrap">监听端口:</span>

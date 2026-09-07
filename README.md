@@ -32,6 +32,12 @@ EdgeSub 是基于 [SubBoost](https://github.com/SubBoost/subboost) **v2.6.0** �
 
 本仓库在 **2026-07-21** 基于上游 v2.6.0 增加了 Cloudflare Workers 部署、登录保护、KV 订阅管理、定时更新和远端规则目录同步等功能。原项目及既有代码的版权归原作者和贡献者所有，本仓库的修改内容继续遵循 `AGPL-3.0-only`。
 
+### EdgeSub 2.6.0-edge.3（2026-09-07）
+
+- 优化 Cloudflare 节点连通性测试：显示测试进度、总耗时，并区分地址无效、连接超时和不可达。
+- 保留 ACL4SSR 在线模板的远程更新机制：保存后的订阅请求会继续使用 ACL4SSR 上游配置，转换结果缓存约 5 分钟；Cron 不会复制模板文件到 KV。
+- 更新 Edge Worker 版本标识，并补充相关回归测试与构建验证。
+
 ## 项目简介
 
 EdgeSub 将 SubBoost 的配置生成器和订阅管理能力部署到一个 Cloudflare Worker 中。Next.js 前端会静态导出并由 Workers Static Assets 提供，API、登录、KV 数据和定时任务则在同一个 Worker 内运行，因此不需要额外维护服务器或数据库。

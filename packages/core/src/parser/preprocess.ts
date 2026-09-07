@@ -36,6 +36,12 @@ function looksLikeHtmlContent(content: string): boolean {
   return false;
 }
 
+export const HTML_SUBSCRIPTION_PAGE_ERROR = "检测到 HTML 页面内容，疑似错误页或拦截页，已停止解析";
+
+export function isHtmlSubscriptionPayload(content: string, contentType?: string): boolean {
+  return /(?:text\/html|application\/xhtml\+xml)/i.test(contentType ?? "") || looksLikeHtmlContent(content);
+}
+
 function tryDecodeBase64Text(content: string): string | null {
   const normalized = content.replace(/\s/g, "");
   if (!normalized || !/^[A-Za-z0-9+/=_-]+$/.test(normalized)) {
@@ -219,7 +225,7 @@ const SUBSCRIPTION_PREPROCESSORS: SubscriptionPreprocessor[] = [
   {
     name: "html",
     test: (content) => looksLikeHtmlContent(content),
-    parse: () => ({ error: "检测到 HTML 页面内容，疑似错误页或拦截页，已停止解析" }),
+    parse: () => ({ error: HTML_SUBSCRIPTION_PAGE_ERROR }),
   },
   {
     name: "base64",

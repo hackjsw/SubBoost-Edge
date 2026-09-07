@@ -18,6 +18,13 @@ export type SourceImportResponse = {
   parseResult?: ParseResult;
 };
 
+export type NodeConnectivityResult = {
+  name?: string;
+  status: "ok" | "fail";
+  latency: number;
+  reason?: "invalid_target" | "timeout" | "unreachable";
+};
+
 export type QuickTemplateSummary = {
   id: string;
   name: string;
@@ -86,6 +93,9 @@ export type ProductRulesApi = {
 export type ProductApiAdapter = {
   sourceImport?: {
     importSource: (request: SourceImportRequest) => Promise<SourceImportResponse>;
+  };
+  connectivity?: {
+    testNodes: (nodes: ParsedNode[]) => Promise<NodeConnectivityResult[]>;
   };
   templates?: ProductTemplateApi;
   rules?: ProductRulesApi;

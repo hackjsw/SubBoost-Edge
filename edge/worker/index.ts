@@ -1,5 +1,6 @@
 import {
   handleAuthMe,
+  handleCronSubscriptionUpdates,
   handleHealth,
   handleSourceImport,
   handleStoredConfig,
@@ -10,6 +11,7 @@ import {
 import { handleAuthLogin, handleAuthLogout, isAuthenticated, unauthorizedResponse } from "./auth";
 import { handleClash, handleShorten, handleSub, handleTest } from "./subscription";
 import { methodNotAllowed } from "./http";
+import { handleStoredConfigCapability } from "./stored-config-capability";
 import {
   handleRulesRefresh,
   handleCnRuleCandidates,
@@ -54,8 +56,10 @@ export async function handleRequest(
     return new Response(null, { status: 204, headers: { Allow: "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS" } });
   }
   if (url.pathname === "/api/health") return handleHealth(request, env);
+  if (url.pathname === "/api/cron/update-subscriptions") return handleCronSubscriptionUpdates(request, env);
   if (url.pathname === "/api/auth/login") return handleAuthLogin(request, env);
   if (url.pathname === "/api/auth/logout") return handleAuthLogout(request);
+  if (url.pathname.startsWith("/config-cap/")) return handleStoredConfigCapability(request, env);
   if (url.pathname.startsWith("/config/")) return handleStoredConfig(request, env, ctx);
 
   const publicStoredSubscription =

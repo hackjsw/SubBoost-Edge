@@ -213,6 +213,7 @@ describe("refreshNodeSnapshot", () => {
         headers: {
           "profile-web-page-url": "https://profile.example.com/",
         },
+        userinfoFetchAttempted: false,
       })),
       fetchUrlUserInfo,
     });
@@ -235,6 +236,112 @@ describe("refreshNodeSnapshot", () => {
         total: 16384,
       },
     });
+  });
+
+  it("does not request supplemental userinfo twice when the node fetch already returned it", async () => {
+    const fetchUrlUserInfo = vi.fn(async () => ({
+      "subscription-userinfo": "upload=9; total=10",
+    }));
+
+    const result = await refreshNodeSnapshot({
+      config: {
+        sources: [
+          {
+            id: "url",
+            type: "url",
+            content: "https://url.example.com/sub",
+            userinfoUrl: "https://url.example.com/sub",
+          },
+        ],
+      },
+      urls: [],
+      storedNodes: [],
+      fetchUrlNodes: vi.fn(async () => ({
+        ok: true,
+        nodes: [node],
+        headers: { "subscription-userinfo": "upload=1024; total=4096" },
+      })),
+      fetchUrlUserInfo,
+    });
+
+    expect(fetchUrlUserInfo).not.toHaveBeenCalled();
+    expect(result.subscriptionInfo).toMatchObject({ upload: 1024, total: 4096 });
+  });
+
+  it("does not retry userinfo after a URL adapter attempted it without a header", async () => {
+    const fetchUrlUserInfo = vi.fn(async () => ({
+      "subscription-userinfo": "upload=9; total=10",
+    }));
+
+    const result = await refreshNodeSnapshot({
+      config: {
+        sources: [
+          {
+            id: "url",
+            type: "url",
+            content: "https://url.example.com/sub",
+            userinfoUrl: "https://url.example.com/userinfo",
+          },
+        ],
+      },
+      urls: [],
+      storedNodes: [],
+      fetchUrlNodes: vi.fn(async () => ({
+        ok: true,
+        nodes: [node],
+        headers: {},
+        userinfoFetchAttempted: true,
+      })),
+      fetchUrlUserInfo,
+    });
+
+    expect(fetchUrlUserInfo).not.toHaveBeenCalled();
+    expect(result.subscriptionInfo).toEqual({});
+  });
+
+  it("does not retry userinfo after an attempted URL fetch fails", async () => {
+    const fetchUrlUserInfo = vi.fn(async () => ({
+      "subscription-userinfo": "upload=9; total=10",
+    }));
+    const fetchUrlNodes = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        nodes: [],
+        error: "upstream failed",
+        userinfoFetchAttempted: true,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        nodes: [node],
+        headers: {},
+        userinfoFetchAttempted: true,
+      });
+
+    await refreshNodeSnapshot({
+      config: {
+        sources: [
+          {
+            id: "failed",
+            type: "url",
+            content: "https://failed.example.com/sub",
+            userinfoUrl: "https://failed.example.com/userinfo",
+          },
+          {
+            id: "successful",
+            type: "url",
+            content: "https://successful.example.com/sub",
+            userinfoUrl: "https://successful.example.com/userinfo",
+          },
+        ],
+      },
+      urls: [],
+      storedNodes: [],
+      fetchUrlNodes,
+      fetchUrlUserInfo,
+    });
+
+    expect(fetchUrlUserInfo).not.toHaveBeenCalled();
   });
 
   it("updates per-source userinfo without copying it to unrelated sources", async () => {
@@ -397,6 +504,7 @@ describe("refreshNodeSnapshot", () => {
         ok: true,
         nodes: [{ ...node, name: "url node", server: "url.example.com" }],
         headers: {},
+        userinfoFetchAttempted: false,
       })),
       fetchUrlUserInfo,
     });

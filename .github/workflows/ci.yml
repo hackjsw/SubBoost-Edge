@@ -19,4 +19,9 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run test:unit
+      - run: npx tsc --noEmit -p packages/core/tsconfig.typecheck.json
+      - run: npx tsc --noEmit -p packages/server-core/tsconfig.typecheck.json
+      - run: npx tsc --noEmit -p packages/ui/tsconfig.typecheck.json
+      - run: npm run edge:typecheck
+      - run: npm run edge:build
       - run: npm run check:local-app

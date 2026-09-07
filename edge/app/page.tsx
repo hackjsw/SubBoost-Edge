@@ -1,7 +1,7 @@
 "use client";
 
 import { HomeSurface, type HomeSurfaceAdapter } from "@subboost/ui/product/home/home-surface";
-import { createRulesProductApi } from "@subboost/ui/product/api-adapter";
+import { createRulesProductApi, type NodeConnectivityResult } from "@subboost/ui/product/api-adapter";
 import { readSourceImportResponse } from "@subboost/ui/product/client-response";
 import { useConfigStore } from "@subboost/ui/store/config-store";
 import {
@@ -16,6 +16,20 @@ const edgeHomeAdapter: HomeSurfaceAdapter = {
   loadSubscription: (id) => fetch(`/api/subscriptions/${encodeURIComponent(id)}`, { cache: "no-store" }),
   templateUploadHref: null,
   productApi: {
+    connectivity: {
+      testNodes: async (nodes) => {
+        const response = await fetch("/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nodes }),
+        });
+        const data = (await response.json().catch(() => [])) as unknown;
+        if (!response.ok || !Array.isArray(data)) {
+          throw new Error("节点连通性测试失败");
+        }
+        return data as NodeConnectivityResult[];
+      },
+    },
     sourceImport: {
       importSource: async (request) => {
         const data = await readSourceImportResponse(

@@ -1,4 +1,3 @@
-import { parseSubscription } from "@subboost/core/parser";
 import {
   DEFAULT_CLASH_CONVERSION_PROFILE_ID,
   getClashConversionProfile,
@@ -11,27 +10,72 @@ import {
   type SubscriptionResponseInfo,
 } from "@subboost/core/subscription/subscription-response-info";
 import type { ParsedNode } from "@subboost/core/types/node";
+import { validateCronSecret } from "@subboost/server-core/cron-auth";
 import { prepareRefreshCacheResult } from "@subboost/server-core/subscription/refresh-cache-result";
 import { refreshNodeSnapshot } from "@subboost/server-core/subscription/refresh-node-snapshot";
 import { buildSubscriptionResponseHeaders } from "@subboost/server-core/subscription/response-headers";
 import type { SavedSource } from "@subboost/server-core/subscription/saved-sources";
 import {
+  buildSourceImportParseResult,
+  importSubscriptionFromUrl,
+  type SourceImportTransportRequest,
+  type SourceImportTransportResult,
+} from "@subboost/server-core/subscription/source-import";
+import { SUBSCRIPTION_IMPORT_USER_AGENTS } from "@subboost/server-core/subscription/user-agents";
+import {
   MAX_IMPORT_BYTES,
   MAX_MANAGED_SUBSCRIPTION_NODES,
+  MAX_REMOTE_REQUESTS_PER_REFRESH,
   MAX_REMOTE_SOURCES,
   MAX_STORED_SUBSCRIPTION_BYTES,
   MAX_STORED_YAML_BYTES,
   MIN_AUTO_UPDATE_INTERVAL_SECONDS,
 } from "./constants";
 import { byteLength } from "./encoding";
+import { isAuthenticated } from "./auth";
 import { json, methodNotAllowed, readJsonBody } from "./http";
 import { fetchRemoteText } from "./remote-fetch";
+import { createStoredConfigCapability } from "./stored-config-capability";
+import {
+  invalidateStoredConfigCache,
+  loadStoredConfigResponse,
+  storedConfigCacheKey,
+} from "./stored-config-cache";
 import { convertClashSubscription } from "./subconverter";
 import type { ExecutionContextLike, WorkerEnv } from "./types";
 
 const CONFIG_KEY_PREFIX = "edge-config:";
 const TOKEN_PATTERN = /^[a-f0-9]{20}$/;
 const SUBSCRIPTION_METADATA_VERSION = 1;
+
+// KV has no compare-and-set primitive. Serialize mutations per token in this
+// Worker instance and re-check the value before migrations/cron writes; a
+// separate isolate can still win the race, so callers must handle a mismatch.
+const storedMutationQueues = new Map<string, Promise<void>>();
+
+function enqueueStoredMutation(token: string, operation: () => Promise<void>): Promise<void> {
+  const previous = storedMutationQueues.get(token) ?? Promise.resolve();
+  const run = previous.catch(() => undefined).then(operation);
+  const tracked = run.then(
+    () => undefined,
+    () => undefined
+  );
+  storedMutationQueues.set(token, tracked);
+  return run.finally(() => {
+    if (storedMutationQueues.get(token) === tracked) storedMutationQueues.delete(token);
+  });
+}
+
+function storedConfigError(message: string, status: number, method: "GET" | "HEAD"): Response {
+  return new Response(method === "HEAD" ? null : message, {
+    status,
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/plain;charset=UTF-8",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
 
 type StoredSubscription = {
   version: 2;
@@ -188,6 +232,69 @@ function subscriptionScheduleMetadata(record: StoredSubscription): SubscriptionS
   };
 }
 
+async function putStoredSubscriptionIfUnchanged(
+  env: WorkerEnv,
+  token: string,
+  key: string,
+  expected: string,
+  record: StoredSubscription
+): Promise<boolean> {
+  const kv = env.SUB_KV;
+  if (!kv) return false;
+  let wrote = false;
+  // Invalidate before entering the per-token queue so a pending mutation
+  // cannot leave an already-cached response authoritative while it waits.
+  invalidateStoredConfigCache(token);
+  await enqueueStoredMutation(token, async () => {
+    const current = await kv.get(key);
+    if (current !== expected) return;
+    invalidateStoredConfigCache(token);
+    await kv.put(key, JSON.stringify(record), {
+      metadata: subscriptionScheduleMetadata(record),
+    });
+    invalidateStoredConfigCache(token);
+    wrote = true;
+  });
+  return wrote;
+}
+
+async function migrateStoredSubscriptionIfUnchanged(
+  env: WorkerEnv,
+  token: string,
+  key: string,
+  expected: string,
+  record: StoredSubscription
+): Promise<boolean> {
+  try {
+    return await putStoredSubscriptionIfUnchanged(env, token, key, expected, record);
+  } catch {
+    // Migration is an optimization; serving the already parsed record remains
+    // safe when the best-effort backfill cannot be persisted.
+    return false;
+  }
+}
+
+async function deleteStoredSubscriptionIfUnchanged(
+  env: WorkerEnv,
+  token: string,
+  key: string,
+  expected: string
+): Promise<boolean> {
+  const kv = env.SUB_KV;
+  if (!kv) return false;
+  let deleted = false;
+  invalidateStoredConfigCache(token);
+  await enqueueStoredMutation(token, async () => {
+    const current = await kv.get(key);
+    if (current !== expected) return;
+    invalidateStoredConfigCache(token);
+    await kv.delete(key);
+    invalidateStoredConfigCache(token);
+    deleted = true;
+  });
+  return deleted;
+}
+
 function metadataUpdateDue(metadata: unknown, now: Date): boolean | null {
   if (
     !isRecord(metadata) ||
@@ -202,6 +309,36 @@ function metadataUpdateDue(metadata: unknown, now: Date): boolean | null {
   return !Number.isFinite(nextUpdateAt) || nextUpdateAt <= now.getTime();
 }
 
+async function fetchSourceImportTransport(
+  request: SourceImportTransportRequest
+): Promise<SourceImportTransportResult> {
+  try {
+    const fetched = await fetchRemoteText(request.url, {
+      maxBytes: request.maxBytes,
+      timeoutMs: request.timeoutMs,
+      userAgent: request.userAgent,
+      method: request.purpose === "userinfo" ? "HEAD" : "GET",
+      signal: request.signal,
+    });
+    return {
+      ok: true,
+      content: request.purpose === "userinfo" ? "" : fetched.content,
+      headers: fetched.headers,
+      responseStatus: fetched.status,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "获取 url 失败";
+    const statusMatch = message.match(/\bHTTP (\d{3})\b/);
+    const status = statusMatch ? Number(statusMatch[1]) : undefined;
+    return {
+      ok: false,
+      error: message,
+      responseStatus: status,
+      publicReason: status ? `HTTP ${status}` : message,
+    };
+  }
+}
+
 function refreshFailureMessage(reason: string): string {
   if (reason === "all_sources_failed") return "所有订阅源更新失败";
   if (reason === "empty_result") return "更新后没有可用节点";
@@ -213,30 +350,52 @@ function buildRefreshCallbacks() {
   let remoteRequests = 0;
   const reserveRemoteRequest = () => {
     remoteRequests += 1;
-    if (remoteRequests > MAX_REMOTE_SOURCES) throw new Error("单次更新的远程订阅源过多");
+    if (remoteRequests > MAX_REMOTE_REQUESTS_PER_REFRESH) {
+      throw new Error("单次更新的远程请求次数过多");
+    }
   };
 
   return {
     fetchUrlNodes: async (source: SavedSource) => {
       try {
-        reserveRemoteRequest();
-        const fetched = await fetchRemoteText(source.content, {
-          maxBytes: MAX_IMPORT_BYTES,
-          timeoutMs: 15000,
-          userAgent: source.userinfoUserAgent || "EdgeSub/2.6",
-        });
-        const parsed = parseSubscription(fetched.content);
+        const imported = await importSubscriptionFromUrl(
+          {
+            url: source.content,
+            ...(source.userinfoUrl ? { userinfoUrl: source.userinfoUrl } : {}),
+            ...(source.userinfoUserAgent ? { userinfoUserAgent: source.userinfoUserAgent } : {}),
+          },
+          {
+            timeoutMs: 15000,
+            maxBytes: MAX_IMPORT_BYTES,
+            fetchText: (request) => {
+              reserveRemoteRequest();
+              return fetchSourceImportTransport(request);
+            },
+          }
+        );
+        if (imported.ok) {
+          return {
+            ok: true,
+            nodes: imported.parsedNodes,
+            errors: imported.parseErrors,
+            headers: imported.headers,
+            userinfoFetchAttempted: Boolean(source.userinfoUrl || source.userinfoUserAgent),
+          };
+        }
         return {
-          ok: parsed.nodes.length > 0,
-          nodes: parsed.nodes,
-          errors: parsed.errors,
-          headers: fetched.headers,
-          responseStatus: fetched.status,
+          ok: false,
+          nodes: [],
+          userinfoFetchAttempted: Boolean(source.userinfoUrl || source.userinfoUserAgent),
+          error: imported.error,
+          errorInfo: imported.errorInfo,
+          publicReason: imported.publicReason ?? undefined,
+          responseStatus: imported.responseStatus,
         };
       } catch (error) {
         return {
           ok: false,
           nodes: [],
+          userinfoFetchAttempted: Boolean(source.userinfoUrl || source.userinfoUserAgent),
           error: error instanceof Error ? error.message : "订阅源更新失败",
         };
       }
@@ -247,7 +406,7 @@ function buildRefreshCallbacks() {
         const fetched = await fetchRemoteText(source.userinfoUrl || source.content, {
           maxBytes: 256 * 1024,
           timeoutMs: 8000,
-          userAgent: source.userinfoUserAgent || "EdgeSub/2.6",
+          userAgent: source.userinfoUserAgent || SUBSCRIPTION_IMPORT_USER_AGENTS[0],
           method: "HEAD",
         });
         return fetched.headers;
@@ -341,7 +500,7 @@ async function refreshStoredSubscription(
   }
 }
 
-function errorInfo(message: string, category: "format" | "security" | "network" | "server") {
+function errorInfo(message: string, category: "format" | "security" | "network" | "server" | "parse") {
   return { category, message, detail: message };
 }
 
@@ -400,6 +559,27 @@ export async function handleAuthMe(request: Request, env: WorkerEnv): Promise<Re
   });
 }
 
+export async function handleCronSubscriptionUpdates(request: Request, env: WorkerEnv): Promise<Response> {
+  if (request.method !== "POST") return methodNotAllowed(["POST"]);
+  const cronAuth = validateCronSecret({
+    cronSecret: env.CRON_SECRET,
+    authorization: request.headers.get("authorization"),
+  });
+  if (!cronAuth.ok && !(await isAuthenticated(request, env))) {
+    if (cronAuth.reason === "missing-secret") {
+      return json({ error: "未配置 CRON_SECRET" }, 503);
+    }
+    return json({ error: "未授权" }, 401);
+  }
+  if (!env.SUB_KV) return json({ error: "KV未绑定" }, 503);
+  const summary = await runScheduledSubscriptionUpdates(env);
+  return json({
+    success: true,
+    ...summary,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 export function handleHealth(request: Request, env: WorkerEnv): Response {
   if (request.method !== "GET") return methodNotAllowed(["GET"]);
   return json({
@@ -421,31 +601,34 @@ export async function handleSourceImport(request: Request): Promise<Response> {
   }
 
   try {
-    const userAgent =
-      typeof body?.userinfoUserAgent === "string" && body.userinfoUserAgent.trim()
-        ? body.userinfoUserAgent.trim().slice(0, 200)
-        : "EdgeSub/2.6";
-    const source = await fetchRemoteText(url, {
-      maxBytes: MAX_IMPORT_BYTES,
-      timeoutMs: 15000,
-      userAgent,
-    });
-    const headers = { ...source.headers };
-
-    if (typeof body?.userinfoUrl === "string" && body.userinfoUrl.trim()) {
-      try {
-        const userinfo = await fetchRemoteText(body.userinfoUrl.trim(), {
-          maxBytes: 256 * 1024,
-          timeoutMs: 8000,
-          userAgent,
-          method: "HEAD",
-        });
-        const value = userinfo.headers["subscription-userinfo"];
-        if (value) headers["subscription-userinfo"] = value;
-      } catch {}
+    const imported = await importSubscriptionFromUrl(
+      {
+        url,
+        ...(typeof body?.userinfoUrl === "string" && body.userinfoUrl.trim()
+          ? { userinfoUrl: body.userinfoUrl.trim() }
+          : {}),
+        ...(typeof body?.userinfoUserAgent === "string" && body.userinfoUserAgent.trim()
+          ? { userinfoUserAgent: body.userinfoUserAgent.trim().slice(0, 200) }
+          : {}),
+      },
+      {
+        timeoutMs: 15000,
+        maxBytes: MAX_IMPORT_BYTES,
+        fetchText: fetchSourceImportTransport,
+      }
+    );
+    if (!imported.ok) {
+      return json({
+        error: imported.error,
+        errorInfo: imported.errorInfo ?? errorInfo(imported.error, "parse"),
+      }, 400);
     }
 
-    return json({ content: source.content, headers });
+    return json({
+      content: imported.content,
+      headers: imported.headers,
+      parseResult: buildSourceImportParseResult(imported),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "获取 url 失败";
     return json({ error: message, errorInfo: errorInfo(message, classifyImportError(message)) }, 400);
@@ -540,20 +723,51 @@ function publicSubscription(token: string, record: StoredSubscription, origin: s
 async function loadStoredSubscription(
   env: WorkerEnv,
   token: string
-): Promise<{ record: StoredSubscription; migrated: boolean } | null> {
+): Promise<{ record: StoredSubscription; migrated: boolean; stored: string } | null> {
   if (!env.SUB_KV || !TOKEN_PATTERN.test(token)) return null;
-  const stored = await env.SUB_KV.get(`${CONFIG_KEY_PREFIX}${token}`);
-  return stored ? parseStoredSubscription(stored) : null;
+  let stored: string | null;
+  try {
+    stored = await env.SUB_KV.get(`${CONFIG_KEY_PREFIX}${token}`);
+  } catch {
+    return null;
+  }
+  if (!stored) return null;
+  let parsed: { record: StoredSubscription; migrated: boolean } | null;
+  try {
+    parsed = parseStoredSubscription(stored);
+  } catch {
+    return null;
+  }
+  return parsed ? { ...parsed, stored } : null;
 }
 
-async function persistStoredSubscription(env: WorkerEnv, token: string, record: StoredSubscription): Promise<Response | null> {
+async function persistStoredSubscription(
+  env: WorkerEnv,
+  token: string,
+  record: StoredSubscription,
+  expectedStored?: string
+): Promise<Response | null> {
   if (!env.SUB_KV) return json({ error: "KV未绑定" }, 503);
   const stored = JSON.stringify(record);
   if (byteLength(stored) > MAX_STORED_SUBSCRIPTION_BYTES) {
     return json({ error: "订阅数据过大，无法保存到 KV" }, 413);
   }
-  await env.SUB_KV.put(`${CONFIG_KEY_PREFIX}${token}`, stored, {
-    metadata: subscriptionScheduleMetadata(record),
+  if (expectedStored !== undefined) {
+    const persisted = await putStoredSubscriptionIfUnchanged(
+      env,
+      token,
+      `${CONFIG_KEY_PREFIX}${token}`,
+      expectedStored,
+      record
+    );
+    return persisted ? null : json({ error: "订阅已被其他请求更新，请重试" }, 409);
+  }
+  invalidateStoredConfigCache(token);
+  await enqueueStoredMutation(token, async () => {
+    await env.SUB_KV!.put(`${CONFIG_KEY_PREFIX}${token}`, stored, {
+      metadata: subscriptionScheduleMetadata(record),
+    });
+    invalidateStoredConfigCache(token);
   });
   return null;
 }
@@ -601,9 +815,16 @@ export async function handleSubscriptionRecord(request: Request, env: WorkerEnv)
   const parsed = await loadStoredSubscription(env, token);
   if (!parsed) return json({ error: "订阅不存在" }, 404);
   const record = parsed.record;
+  let expectedStored = parsed.stored;
   if (parsed.migrated) {
-    const persistenceError = await persistStoredSubscription(env, token, record);
-    if (persistenceError) return persistenceError;
+    const migrated = await migrateStoredSubscriptionIfUnchanged(
+      env,
+      token,
+      `${CONFIG_KEY_PREFIX}${token}`,
+      parsed.stored,
+      record
+    );
+    if (migrated) expectedStored = JSON.stringify(record);
   }
 
   if (action) {
@@ -614,7 +835,7 @@ export async function handleSubscriptionRecord(request: Request, env: WorkerEnv)
     }
 
     const refreshed = await refreshStoredSubscription(record, new Date());
-    const persistenceError = await persistStoredSubscription(env, token, refreshed.record);
+    const persistenceError = await persistStoredSubscription(env, token, refreshed.record, expectedStored);
     if (persistenceError) return persistenceError;
     if (!refreshed.ok) {
       return json(
@@ -642,7 +863,7 @@ export async function handleSubscriptionRecord(request: Request, env: WorkerEnv)
     if (!body) return json({ error: "无效的 JSON 请求" }, 400);
     const built = buildStoredSubscription(body, new Date(), record);
     if ("response" in built) return built.response;
-    const persistenceError = await persistStoredSubscription(env, token, built.record);
+    const persistenceError = await persistStoredSubscription(env, token, built.record, expectedStored);
     if (persistenceError) return persistenceError;
     return json({ subscription: publicSubscription(token, built.record, url.origin) });
   }
@@ -676,13 +897,19 @@ export async function handleSubscriptionRecord(request: Request, env: WorkerEnv)
     if (autoUpdateInterval) next.nextUpdateAt = nextUpdateTime(new Date(), autoUpdateInterval);
     else delete next.nextUpdateAt;
 
-    const persistenceError = await persistStoredSubscription(env, token, next);
+    const persistenceError = await persistStoredSubscription(env, token, next, expectedStored);
     if (persistenceError) return persistenceError;
     return json({ subscription: publicSubscription(token, next, url.origin) });
   }
 
   if (request.method === "DELETE") {
-    await env.SUB_KV.delete(`${CONFIG_KEY_PREFIX}${token}`);
+    const deleted = await deleteStoredSubscriptionIfUnchanged(
+      env,
+      token,
+      `${CONFIG_KEY_PREFIX}${token}`,
+      expectedStored
+    );
+    if (!deleted) return json({ error: "订阅已被其他请求更新，请重试" }, 409);
     return new Response(null, { status: 204 });
   }
 
@@ -695,23 +922,45 @@ export async function handleStoredConfig(
   ctx?: ExecutionContextLike
 ): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
-  if (!env.SUB_KV) return new Response("KV is not configured", { status: 503 });
+  const method: "GET" | "HEAD" = request.method === "HEAD" ? "HEAD" : "GET";
+  if (!env.SUB_KV) return storedConfigError("KV is not configured", 503, method);
   const requestUrl = new URL(request.url);
   const token = requestUrl.pathname.split("/").filter(Boolean).at(-1) || "";
-  if (!TOKEN_PATTERN.test(token)) return new Response("Subscription not found", { status: 404 });
+  if (!TOKEN_PATTERN.test(token)) return storedConfigError("Subscription not found", 404, method);
 
+  const raw = requestUrl.searchParams.get("raw") === "1";
+  return loadStoredConfigResponse(
+    storedConfigCacheKey(token, method, raw),
+    { method },
+    () => loadStoredConfigFromKv(request, env, token, method, raw, ctx)
+  );
+}
+
+async function loadStoredConfigFromKv(
+  request: Request,
+  env: WorkerEnv,
+  token: string,
+  method: "GET" | "HEAD",
+  raw: boolean,
+  ctx?: ExecutionContextLike
+): Promise<Response> {
+  const kv = env.SUB_KV;
+  if (!kv) return storedConfigError("KV is not configured", 503, method);
   const key = `${CONFIG_KEY_PREFIX}${token}`;
-  const stored = await env.SUB_KV.get(key);
-  if (!stored) return new Response("Subscription not found", { status: 404 });
+  let stored: string | null;
+  try {
+    stored = await kv.get(key);
+  } catch {
+    return storedConfigError("Stored subscription is unavailable", 503, method);
+  }
+  if (!stored) return storedConfigError("Subscription not found", 404, method);
 
   try {
     const parsed = parseStoredSubscription(stored);
     if (!parsed) throw new Error("invalid config");
     const { record } = parsed;
     if (parsed.migrated) {
-      const migration = env.SUB_KV.put(key, JSON.stringify(record), {
-        metadata: subscriptionScheduleMetadata(record),
-      });
+      const migration = migrateStoredSubscriptionIfUnchanged(env, token, key, stored, record);
       if (ctx) ctx.waitUntil(migration);
       else await migration;
     }
@@ -729,26 +978,30 @@ export async function handleStoredConfig(
     headers.set("X-SubBoost-Last-Updated", record.updatedAt);
     if (record.nextUpdateAt) headers.set("X-SubBoost-Next-Update", record.nextUpdateAt);
 
-    if (requestUrl.searchParams.get("raw") !== "1") {
+    if (!raw) {
       const profile = getClashConversionProfile(record.conversionProfileId);
       if (profile.configUrl) {
-        const sourceUrl = new URL(request.url);
-        sourceUrl.searchParams.set("raw", "1");
+        // A stored config URL is persistent bearer access; only forward its
+        // short-lived capability to an explicitly configured converter.
+        if (!env.SUBCONVERTER_BACKEND?.trim()) {
+          return storedConfigError("Subconverter backend is not configured", 503, method);
+        }
+        const sourceUrl = await createStoredConfigCapability(env, request.url, record.yaml);
         return convertClashSubscription({
           env,
-          sourceUrl: sourceUrl.toString(),
+          sourceUrl,
           configUrl: profile.configUrl,
-          method: request.method,
+          method,
+          requireExplicitBackend: true,
           responseHeaders: headers,
         });
       }
     }
 
-    return new Response(request.method === "HEAD" ? null : record.yaml, {
-      headers,
-    });
+    headers.set("Content-Length", String(byteLength(record.yaml)));
+    return new Response(method === "HEAD" ? null : record.yaml, { headers });
   } catch {
-    return new Response("Stored subscription is invalid", { status: 500 });
+    return storedConfigError("Stored subscription is invalid", 500, method);
   }
 }
 
@@ -769,6 +1022,7 @@ export async function runScheduledSubscriptionUpdates(
 
     for (const key of page.keys) {
       summary.scanned += 1;
+      const token = key.name.slice(CONFIG_KEY_PREFIX.length);
       const dueFromMetadata = metadataUpdateDue(key.metadata, now);
       if (dueFromMetadata === false) {
         summary.skipped += 1;
@@ -777,25 +1031,63 @@ export async function runScheduledSubscriptionUpdates(
 
       try {
         const stored = await env.SUB_KV.get(key.name);
-        const parsed = stored ? parseStoredSubscription(stored) : null;
+        if (!stored) {
+          summary.skipped += 1;
+          continue;
+        }
+        const parsed = parseStoredSubscription(stored);
         if (!parsed) {
           summary.skipped += 1;
           continue;
         }
 
-        if (parsed.migrated || !isUpdateDue(parsed.record, now)) {
-          await env.SUB_KV.put(key.name, JSON.stringify(parsed.record), {
-            metadata: subscriptionScheduleMetadata(parsed.record),
-          });
+        let expectedStored = stored;
+        if (parsed.migrated) {
+          const migrated = await putStoredSubscriptionIfUnchanged(
+            env,
+            token,
+            key.name,
+            expectedStored,
+            parsed.record
+          );
+          if (!migrated) {
+            summary.skipped += 1;
+            continue;
+          }
+          expectedStored = JSON.stringify(parsed.record);
+        }
+
+        if (!isUpdateDue(parsed.record, now)) {
+          if (!parsed.migrated) {
+            const metadataWritten = await putStoredSubscriptionIfUnchanged(
+              env,
+              token,
+              key.name,
+              expectedStored,
+              parsed.record
+            );
+            if (!metadataWritten) {
+              summary.skipped += 1;
+              continue;
+            }
+          }
           summary.skipped += 1;
           continue;
         }
 
         summary.due += 1;
         const refreshed = await refreshStoredSubscription(parsed.record, now);
-        await env.SUB_KV.put(key.name, JSON.stringify(refreshed.record), {
-          metadata: subscriptionScheduleMetadata(refreshed.record),
-        });
+        const persisted = await putStoredSubscriptionIfUnchanged(
+          env,
+          token,
+          key.name,
+          expectedStored,
+          refreshed.record
+        );
+        if (!persisted) {
+          summary.skipped += 1;
+          continue;
+        }
         if (refreshed.ok) summary.updated += 1;
         else summary.failed += 1;
       } catch {

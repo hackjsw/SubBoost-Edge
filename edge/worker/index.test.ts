@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getClashConversionProfile } from "@subboost/core/subscription/clash-conversion-profiles";
 import {
   KV_TTL,
   MAX_STORED_SUBSCRIPTION_BYTES,
   MAX_STORED_YAML_BYTES,
+  MAX_REMOTE_REQUESTS_PER_REFRESH,
   MAX_TEST_NODES,
 } from "./constants";
 import { runScheduledSubscriptionUpdates } from "./edge-api";
@@ -13,6 +14,8 @@ import {
   RULE_CATALOG_CRON,
   RULE_INDEX_CACHE_KEY,
 } from "./rules-api";
+import { resetStoredConfigCache } from "./stored-config-cache";
+import { STORED_CONFIG_CAPABILITY_TTL_SECONDS } from "./stored-config-capability";
 import type { ExecutionContextLike, KVNamespaceLike, WorkerEnv } from "./types";
 
 class MemoryKv implements KVNamespaceLike {
@@ -135,6 +138,9 @@ function createRuleTreeFetch(
 }
 
 describe("EdgeSub worker", () => {
+  beforeEach(() => {
+    resetStoredConfigCache();
+  });
   it("redirects anonymous pages to login and serves assets after authentication", async () => {
     const env = createEnv(undefined, {
       ASSETS: {
@@ -364,7 +370,7 @@ describe("EdgeSub worker", () => {
 
   it("converts allowlisted stored profiles while raw reads remain local", async () => {
     const kv = new MemoryKv();
-    const env = createEnv(kv);
+    const env = createEnv(kv, { SUBCONVERTER_BACKEND: "https://converter.test/sub" });
     const cookie = await login(env);
     const createResponse = await handleRequest(
       authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
@@ -400,9 +406,16 @@ describe("EdgeSub worker", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(1);
       const converterUrl = new URL(String(fetchImpl.mock.calls[0]?.[0]));
       expect(converterUrl.searchParams.get("target")).toBe("clash");
-      expect(converterUrl.searchParams.get("url")).toBe(
-        `${created.subscription.subscriptionUrl}?raw=1`
-      );
+      const capabilityUrl = converterUrl.searchParams.get("url");
+      expect(capabilityUrl).toMatch(/^https:\/\/edge\.test\/config-cap\/[a-f0-9]{32}$/);
+      expect(capabilityUrl).not.toContain(created.subscription.token);
+      expect(kv.writes.at(-1)).toMatchObject({
+        key: expect.stringMatching(/^edge-config-capability:v1:[a-f0-9]{32}$/),
+        expirationTtl: STORED_CONFIG_CAPABILITY_TTL_SECONDS,
+      });
+      const capabilityResponse = await handleRequest(new Request(capabilityUrl || ""), env);
+      expect(capabilityResponse.status).toBe(200);
+      expect(await capabilityResponse.text()).toContain("MATCH,DIRECT");
       expect(converterUrl.searchParams.get("config")).toBe(
         getClashConversionProfile("acl4ssr-online-mini").configUrl
       );
@@ -427,9 +440,87 @@ describe("EdgeSub worker", () => {
       expect(raw.status).toBe(200);
       expect(await raw.text()).toContain("MATCH,DIRECT");
       expect(fetchImpl).not.toHaveBeenCalled();
+
+      fetchImpl.mockClear();
+      const convertedAgain = await handleRequest(new Request(created.subscription.subscriptionUrl), env);
+      expect(convertedAgain.status).toBe(200);
+      expect(await convertedAgain.text()).toContain("MATCH,Proxy");
+      expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("requires an explicit converter backend for stored remote profiles", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Remote Profile",
+          yaml: "proxies: []\n",
+          conversionProfileId: "acl4ssr-online-mini",
+        }),
+      }),
+      env
+    );
+    const created = (await createResponse.json()) as { subscription: { subscriptionUrl: string } };
+    const fetchImpl = vi.fn();
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const response = await handleRequest(new Request(created.subscription.subscriptionUrl), env);
+      expect(response.status).toBe(503);
+      expect(await response.text()).toContain("backend is not configured");
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect([...kv.values.keys()].some((key) => key.startsWith("edge-config-capability:v1:"))).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reuses stored config GET responses until a write and ignores public cache bypasses", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Cached", yaml: "proxies: []\nrules:\n  - MATCH,DIRECT\n" }),
+      }),
+      env
+    );
+    const created = (await createResponse.json()) as { subscription: { token: string; subscriptionUrl: string } };
+    const configUrl = created.subscription.subscriptionUrl;
+    const configKey = `edge-config:${created.subscription.token}`;
+
+    const first = await handleRequest(new Request(configUrl), env);
+    expect(await first.text()).toContain("MATCH,DIRECT");
+    const readsAfterFirst = kv.reads.filter((key) => key === configKey).length;
+
+    const second = await handleRequest(new Request(configUrl), env);
+    expect(await second.text()).toContain("MATCH,DIRECT");
+    expect(kv.reads.filter((key) => key === configKey)).toHaveLength(readsAfterFirst);
+
+    const forced = await handleRequest(new Request(`${configUrl}?force=1`), env);
+    expect(await forced.text()).toContain("MATCH,DIRECT");
+    expect(kv.reads.filter((key) => key === configKey)).toHaveLength(readsAfterFirst);
+
+    const updateResponse = await handleRequest(
+      authenticatedRequest(`https://edge.test/api/subscriptions/${created.subscription.token}`, cookie, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Cached", yaml: "proxies: []\nrules:\n  - MATCH,PROXY\n" }),
+      }),
+      env
+    );
+    expect(updateResponse.status).toBe(200);
+
+    const afterUpdate = await handleRequest(new Request(configUrl), env);
+    expect(await afterUpdate.text()).toContain("MATCH,PROXY");
   });
 
   it("rejects unknown profile writes and keeps the public URL stable across updates", async () => {
@@ -527,6 +618,27 @@ describe("EdgeSub worker", () => {
       clashUrl.searchParams.set("profile", "native");
       const invalid = await handleRequest(authenticatedRequest(clashUrl.toString(), cookie), env);
       expect(invalid.status).toBe(400);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("requires an explicit converter backend for legacy short-link clash requests", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const token = "short-link";
+    kv.values.set(
+      token,
+      JSON.stringify({
+        source: "vless://00000000-0000-4000-8000-000000000000@example.com:443?security=tls#HK",
+      })
+    );
+    const fetchImpl = vi.fn();
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const response = await handleRequest(new Request(`https://edge.test/clash?id=${token}`), env);
+      expect(response.status).toBe(503);
       expect(fetchImpl).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
@@ -704,6 +816,161 @@ describe("EdgeSub worker", () => {
     expect(stored.yaml).toContain("example.com");
     expect(stored.lastSuccessAt).toBeTruthy();
     expect(stored.lastError).toBeUndefined();
+  });
+
+  it("scheduled refresh retries remote URL sources with client user agents", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const yaml = [
+      "proxies:",
+      "  - name: Remote",
+      "    type: trojan",
+      "    server: remote.example.com",
+      "    port: 443",
+      "    password: secret",
+    ].join("\n");
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const userAgent = new Headers(init?.headers).get("user-agent") || "";
+      if (userAgent.startsWith("v2rayN/")) {
+        return new Response("<!doctype html><html><body>blocked</body></html>", {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
+      if (userAgent.startsWith("mihomo/")) {
+        return new Response(yaml, { headers: { "content-type": "text/yaml" } });
+      }
+      return new Response("<!doctype html><html><body>cover</body></html>", {
+        headers: { "content-type": "text/html" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const createResponse = await handleRequest(
+        authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Remote URL Config",
+            yaml: "proxies: []\nrules: []\n",
+            autoUpdateInterval: 3600,
+            urls: ["https://example.com/sub.yaml"],
+            nodes: [],
+            config: {
+              template: "minimal",
+              sources: [{ id: "source-1", type: "url", content: "https://example.com/sub.yaml" }],
+            },
+          }),
+        }),
+        env
+      );
+      const created = (await createResponse.json()) as { subscription: { token: string; nextUpdateAt: string } };
+      expect(createResponse.status).toBe(200);
+
+      const summary = await runScheduledSubscriptionUpdates(
+        { SUB_KV: kv },
+        new Date(new Date(created.subscription.nextUpdateAt).getTime() + 1000)
+      );
+      const stored = JSON.parse(kv.values.get(`edge-config:${created.subscription.token}`) || "{}") as {
+        yaml?: string;
+        lastError?: string;
+      };
+
+      expect(summary).toMatchObject({ scanned: 1, due: 1, updated: 1, failed: 0 });
+      expect(stored.yaml).toContain("remote.example.com");
+      expect(stored.lastError).toBeUndefined();
+      expect(fetchImpl.mock.calls.some((call) => String(new Headers(call[1]?.headers).get("user-agent") || "").startsWith("v2rayN/"))).toBe(true);
+      expect(fetchImpl.mock.calls.some((call) => String(new Headers(call[1]?.headers).get("user-agent") || "").startsWith("mihomo/"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("caps actual remote requests across a scheduled refresh", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const sources = Array.from({ length: 32 }, (_, index) => ({
+      id: `source-${index}`,
+      type: "url",
+      content: `https://source-${index}.example.com/sub.yaml`,
+    }));
+    const fetchImpl = vi.fn(async () =>
+      new Response("<!doctype html><html><body>blocked</body></html>", {
+        headers: { "content-type": "text/html" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      const createResponse = await handleRequest(
+        authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Budgeted refresh",
+            yaml: "proxies: []\nrules: []\n",
+            autoUpdateInterval: 3600,
+            urls: sources.map((source) => source.content),
+            nodes: [],
+            config: { template: "minimal", sources },
+          }),
+        }),
+        env
+      );
+      const created = (await createResponse.json()) as {
+        subscription: { nextUpdateAt: string };
+      };
+
+      const summary = await runScheduledSubscriptionUpdates(
+        { SUB_KV: kv },
+        new Date(new Date(created.subscription.nextUpdateAt).getTime() + 1000)
+      );
+
+      expect(summary).toMatchObject({ scanned: 1, due: 1, updated: 0, failed: 1 });
+      expect(fetchImpl).toHaveBeenCalledTimes(MAX_REMOTE_REQUESTS_PER_REFRESH);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("allows an authenticated or CRON_SECRET request to run subscription updates", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv, { CRON_SECRET: "cron-secret" });
+    const cookie = await login(env);
+    const missing = await handleRequest(
+      new Request("https://edge.test/api/cron/update-subscriptions", { method: "POST" }),
+      createEnv(kv)
+    );
+    expect(missing.status).toBe(503);
+
+    const unauthorized = await handleRequest(
+      new Request("https://edge.test/api/cron/update-subscriptions", {
+        method: "POST",
+        headers: { Authorization: "Bearer wrong" },
+      }),
+      env
+    );
+    expect(unauthorized.status).toBe(401);
+
+    const method = await handleRequest(new Request("https://edge.test/api/cron/update-subscriptions"), env);
+    expect(method.status).toBe(405);
+
+    const bySecret = await handleRequest(
+      new Request("https://edge.test/api/cron/update-subscriptions", {
+        method: "POST",
+        headers: { Authorization: "Bearer cron-secret" },
+      }),
+      env
+    );
+    expect(bySecret.status).toBe(200);
+    await expect(bySecret.json()).resolves.toMatchObject({ success: true, scanned: 0 });
+
+    const bySession = await handleRequest(
+      authenticatedRequest("https://edge.test/api/cron/update-subscriptions", cookie, { method: "POST" }),
+      env
+    );
+    expect(bySession.status).toBe(200);
   });
 
   it("skips subscriptions whose KV metadata says they are not due", async () => {
@@ -1099,6 +1366,33 @@ describe("EdgeSub worker", () => {
 
     expect(response.status).toBe(400);
     expect(data.error).toContain("内网地址");
+  });
+
+  it("rejects HTML subscription imports before parsing", async () => {
+    const env = createEnv();
+    const cookie = await login(env);
+    const fetchImpl = vi.fn(async () =>
+      new Response("<!doctype html><html><head></head><body>blocked</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const response = await handleRequest(
+        authenticatedRequest("https://edge.test/api/source-import", cookie, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: "https://example.com/sub" }),
+        }),
+        env
+      );
+      const data = (await response.json()) as { error?: string; errorInfo?: { category?: string } };
+      expect(response.status).toBe(400);
+      expect(data.error).toContain("检测到 HTML 页面内容");
+      expect(data.errorInfo?.category).toBe("parse");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("caps node connectivity tests", async () => {

@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "types": ["node"],
+    "ignoreDeprecations": "6.0",
+    "incremental": false,
+    "paths": {
+      "@subboost/core": ["../core/src/index.ts"],
+      "@subboost/core/*": ["../core/src/*"],
+      "@subboost/server-core": ["./src/index.ts"],
+      "@subboost/server-core/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "src/**/*.test.ts", "src/**/*.test-helpers.ts"]
+}
