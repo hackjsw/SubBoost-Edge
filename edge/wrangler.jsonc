@@ -3,6 +3,9 @@
   "name": "test",
   "main": "worker/index.ts",
   "compatibility_date": "2026-02-07",
+  "vars": {
+    "SUBCONVERTER_BACKEND": "https://api.wcc.best/sub"
+  },
   "assets": {
     "directory": "./out",
     "binding": "ASSETS",

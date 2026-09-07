@@ -585,7 +585,7 @@ export function handleHealth(request: Request, env: WorkerEnv): Response {
   return json({
     status: "ok",
     service: "edgesub",
-    version: "2.6.0-edge.2",
+    version: "2.6.0-edge.3",
     kv: Boolean(env.SUB_KV),
     auth: Boolean(env.EDGE_ADMIN_PASSWORD?.trim()),
   });
