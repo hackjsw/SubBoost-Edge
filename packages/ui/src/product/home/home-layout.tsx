@@ -354,7 +354,7 @@ export function HomeLayout({
                     variant="outline"
                     asChild
                   >
-                    <Link href="/" title="退出编辑模式">
+                    <Link href="/?newSubscription=1" title="退出编辑模式">
                       退出编辑
                     </Link>
                   </Button>
