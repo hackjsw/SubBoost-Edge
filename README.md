@@ -154,7 +154,11 @@ Edge 部署在首页快捷模式的“完整版”下方提供 **ACL4SSR 模板*
 - 无测速版
 - 无拦截版
 
-所选方案会随订阅记录保存到 KV。手动刷新或 Cron 到期刷新订阅时，Worker 会将对应的 ACL4SSR `master` 配置地址交给 subconverter，因此会使用上游当前版本；Worker 不会每 15 分钟单独下载或复制模板文件到 KV。若 ACL4SSR 或 subconverter 暂时不可用，转换请求会返回错误，不会静默切换到原生规则。
+所选方案会随订阅记录保存到 KV。访问订阅链接、缓存未命中时，Worker 将对应的 ACL4SSR `master` 配置地址交给 subconverter；Cron 更新订阅源，不会单独下载或复制模板文件到 KV。模板新鲜度还受转换服务自身缓存影响，不保证 5 分钟内与上游一致。
+
+Worker 支持一个主后端和两个备用后端，通过 `edge/wrangler.jsonc` 的 `SUBCONVERTER_BACKEND` 和 `SUBCONVERTER_FALLBACK_BACKENDS`（逗号分隔）配置。当前使用 `api.dler.io`、`pub-api-1.bianyuan.xyz` 和 `api.wcc.best`，来自 [ACL4SSR 在线工具](https://acl4ssr-sub.github.io/) 的公开后端列表。超时、非 200 响应、无效 YAML 或空节点配置会自动切换，每个后端最多等待 8 秒。同一 Worker 实例会暂时跳过失败后端 60 秒；全部失败时返回明确错误，不会静默切换模板。
+
+保存后的 ACL 订阅仅将节点名称和占位节点通过 5 分钟临时链接交给转换服务生成代理组，真实节点地址、凭据及 VLESS/XHTTP/ECH 字段由 Worker 填回，避免旧转换器丢弃节点。旧 `/clash` 接口仍按原有方式转交其输入源。公共后端仍可能限流或停服，可替换为自己的服务地址。
 
 首页本地 YAML 预览仍使用 EdgeSub 内置模板。ACL4SSR 官模应用于保存后的订阅输出，也可以在“生成订阅链接”弹窗中再次确认或切换。
 

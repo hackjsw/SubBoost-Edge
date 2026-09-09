@@ -4,7 +4,8 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-02-07",
   "vars": {
-    "SUBCONVERTER_BACKEND": "https://api.wcc.best/sub"
+    "SUBCONVERTER_BACKEND": "https://api.dler.io/sub",
+    "SUBCONVERTER_FALLBACK_BACKENDS": "https://pub-api-1.bianyuan.xyz/sub,https://api.wcc.best/sub"
   },
   "assets": {
     "directory": "./out",

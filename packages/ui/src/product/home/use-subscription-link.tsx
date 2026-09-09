@@ -164,6 +164,12 @@ export function useSubscriptionLink({
   const [conversionProfileId, setConversionProfileId] = React.useState<ClashConversionProfileId>(
     defaultConversionProfileId
   );
+  React.useEffect(() => {
+    if (!editingSubscription) return;
+    setConversionProfileId(
+      resolveClashConversionProfileId(editingSubscription.conversionProfileId, defaultConversionProfileId)
+    );
+  }, [defaultConversionProfileId, editingSubscription]);
   const [isCreatingSubscription, setIsCreatingSubscription] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const [saveRequirementDialog, setSaveRequirementDialog] = React.useState(false);
@@ -222,21 +228,11 @@ export function useSubscriptionLink({
     setAutoUpdateEnabled(nextAutoUpdateEnabled);
     setAutoUpdateHours(nextAutoUpdateHours);
     setSmartNodeMatchingEnabled(editingSubscription?.smartNodeMatchingEnabled !== false);
-    setConversionProfileId((currentProfileId) => {
-      if (!isEditingExistingSubscription) {
-        return conversionProfiles.some((profile) => profile.id === currentProfileId)
-          ? currentProfileId
-          : defaultConversionProfileId;
-      }
-
-      const editingProfileId = resolveClashConversionProfileId(
-        editingSubscription?.conversionProfileId,
-        defaultConversionProfileId
-      );
-      return conversionProfiles.some((profile) => profile.id === editingProfileId)
-        ? editingProfileId
-        : defaultConversionProfileId;
-    });
+    setConversionProfileId((currentProfileId) =>
+      conversionProfiles.some((profile) => profile.id === currentProfileId)
+        ? currentProfileId
+        : defaultConversionProfileId
+    );
     setSubscriptionUrl("");
     setSubscriptionDialog(true);
   }, [
@@ -348,6 +344,28 @@ export function useSubscriptionLink({
     setIsCreatingSubscription(true);
 
     try {
+      const currentConfig = useConfigStore.getState();
+      const currentTemplate = currentConfig.template ?? template;
+      const currentAppliedTemplateId =
+        currentConfig.appliedTemplateId !== undefined ? currentConfig.appliedTemplateId : appliedTemplateId;
+      const currentEnabledProxyGroups = currentConfig.enabledProxyGroups ?? enabledProxyGroups;
+      const currentHiddenProxyGroups = currentConfig.hiddenProxyGroups ?? hiddenProxyGroups;
+      const currentCustomRules = currentConfig.customRules ?? customRules;
+      const currentRuleOrder = currentConfig.ruleOrder ?? ruleOrder;
+      const currentCustomProxyGroups = currentConfig.customProxyGroups ?? customProxyGroups;
+      const currentCustomRuleSets = currentConfig.customRuleSets ?? customRuleSets;
+      const currentBuiltinRuleEdits = currentConfig.builtinRuleEdits ?? builtinRuleEdits;
+      const currentDialerProxyGroups = currentConfig.dialerProxyGroups ?? dialerProxyGroups;
+      const currentProxyGroupNameOverrides = currentConfig.proxyGroupNameOverrides ?? proxyGroupNameOverrides;
+      const currentListenerPorts = currentConfig.listenerPorts ?? listenerPorts;
+      const currentDnsYaml = currentConfig.dnsYaml ?? dnsYaml;
+      const currentRuleProviderBaseUrl = currentConfig.ruleProviderBaseUrl ?? ruleProviderBaseUrl;
+      const currentTestUrl = currentConfig.testUrl ?? testUrl;
+      const currentTestInterval = currentConfig.testInterval ?? testInterval;
+      const currentCnIpNoResolve = currentConfig.cnIpNoResolve ?? cnIpNoResolve;
+      const currentExperimentalCnUseCnRuleSet =
+        currentConfig.experimentalCnUseCnRuleSet ?? experimentalCnUseCnRuleSet;
+
       const subscriptionInfo: SubscriptionUserInfo = {};
       const sourceSubscriptionInfoById = new Map<string, SubscriptionUserInfo>();
       for (const source of storeSources) {
@@ -361,7 +379,7 @@ export function useSubscriptionLink({
 
       const payload = {
           name: subscriptionName,
-          templateId: appliedTemplateId,
+          templateId: currentAppliedTemplateId,
           autoUpdateInterval: autoUpdateAvailable ? nextAutoUpdateInterval : null,
           ...(conversionProfiles.length > 0 ? { conversionProfileId } : {}),
           urls: storeSources
@@ -374,8 +392,8 @@ export function useSubscriptionLink({
           ...(hasSubscriptionInfo ? { subscriptionInfo } : {}),
           // 订阅链接存储“结构化配置 + 节点列表”用于生成配置
           config: {
-            template,
-            appliedTemplateId,
+            template: currentTemplate,
+            appliedTemplateId: currentAppliedTemplateId,
             smartNodeMatchingEnabled,
             // 用于“我的订阅 → 编辑”恢复输入源（保留 YAML/节点链接/多个 URL 的顺序）
             sources: storeSources
@@ -426,27 +444,27 @@ export function useSubscriptionLink({
               }),
             deletedNodeNames,
             deletedNodes,
-            enabledGroups: enabledProxyGroups,
-            enabledRules: enabledProxyGroups,
-            hiddenProxyGroups,
-            customRules,
-            ruleOrder,
-            customProxyGroups,
-            customRuleSets,
-            builtinRuleEdits,
+            enabledGroups: currentEnabledProxyGroups,
+            enabledRules: currentEnabledProxyGroups,
+            hiddenProxyGroups: currentHiddenProxyGroups,
+            customRules: currentCustomRules,
+            ruleOrder: currentRuleOrder,
+            customProxyGroups: currentCustomProxyGroups,
+            customRuleSets: currentCustomRuleSets,
+            builtinRuleEdits: currentBuiltinRuleEdits,
             proxyGroupAdvanced: useConfigStore.getState().proxyGroupAdvanced,
             proxyGroupAdvancedModeEnabled: Boolean(useConfigStore.getState().proxyGroupAdvancedModeEnabled),
             moduleRuleEditWarningAccepted,
-            dialerProxyGroups,
-            proxyGroupNameOverrides,
+            dialerProxyGroups: currentDialerProxyGroups,
+            proxyGroupNameOverrides: currentProxyGroupNameOverrides,
             proxyGroupOrder: useConfigStore.getState().proxyGroupOrder,
-            listenerPorts,
-            dnsYaml,
-            ruleProviderBaseUrl,
-            testUrl,
-            testInterval,
-            cnIpNoResolve,
-            experimentalCnUseCnRuleSet,
+            listenerPorts: currentListenerPorts,
+            dnsYaml: currentDnsYaml,
+            ruleProviderBaseUrl: currentRuleProviderBaseUrl,
+            testUrl: currentTestUrl,
+            testInterval: currentTestInterval,
+            cnIpNoResolve: currentCnIpNoResolve,
+            experimentalCnUseCnRuleSet: currentExperimentalCnUseCnRuleSet,
             autoSelectStrategy: "url-test",
           },
         };

@@ -41,7 +41,7 @@ import {
   loadStoredConfigResponse,
   storedConfigCacheKey,
 } from "./stored-config-cache";
-import { convertClashSubscription } from "./subconverter";
+import { convertClashSubscription, prepareClashTemplateSource } from "./subconverter";
 import type { ExecutionContextLike, WorkerEnv } from "./types";
 
 const CONFIG_KEY_PREFIX = "edge-config:";
@@ -986,7 +986,8 @@ async function loadStoredConfigFromKv(
         if (!env.SUBCONVERTER_BACKEND?.trim()) {
           return storedConfigError("Subconverter backend is not configured", 503, method);
         }
-        const sourceUrl = await createStoredConfigCapability(env, request.url, record.yaml);
+        const templateSource = prepareClashTemplateSource(record.yaml);
+        const sourceUrl = await createStoredConfigCapability(env, request.url, templateSource.yaml);
         return convertClashSubscription({
           env,
           sourceUrl,
@@ -994,6 +995,7 @@ async function loadStoredConfigFromKv(
           method,
           requireExplicitBackend: true,
           responseHeaders: headers,
+          originalProxies: templateSource.proxies,
         });
       }
     }

@@ -7,11 +7,15 @@ const mocks = vi.hoisted(() => {
   const bag: {
     state: unknown[];
     stateIndex: number;
+    effectDeps: unknown[][];
+    effectIndex: number;
     storeState: any;
     interactions: Record<string, ReturnType<typeof vi.fn>>;
   } = {
     state: [],
     stateIndex: 0,
+    effectDeps: [],
+    effectIndex: 0,
     storeState: {},
     interactions: {
       saveRequirementAccepted: vi.fn(),
@@ -50,6 +54,13 @@ const mocks = vi.hoisted(() => {
 vi.mock("react", () => ({
   useCallback: mocks.useCallback,
   useMemo: mocks.useMemo,
+  useEffect: (effect: () => void, deps?: unknown[]) => {
+    const index = mocks.bag.effectIndex++;
+    const previous = mocks.bag.effectDeps[index];
+    const changed = !deps || !previous || deps.some((value, depIndex) => !Object.is(value, previous[depIndex]));
+    mocks.bag.effectDeps[index] = deps ?? [];
+    if (changed) effect();
+  },
   useState: mocks.useState,
 }));
 
@@ -89,10 +100,13 @@ vi.mock("@subboost/core/subscription/auto-update-interval", async (importOrigina
 function resetHookState() {
   mocks.bag.state = [];
   mocks.bag.stateIndex = 0;
+  mocks.bag.effectDeps = [];
+  mocks.bag.effectIndex = 0;
 }
 
 function useRenderedHook(overrides: Record<string, unknown> = {}) {
   mocks.bag.stateIndex = 0;
+  mocks.bag.effectIndex = 0;
   return useSubscriptionLink(makeOptions(overrides));
 }
 
@@ -617,6 +631,64 @@ describe("useSubscriptionLink", () => {
     expect(console.error).toHaveBeenCalledWith("Create subscription error:", error);
     expect(mocks.toast).toHaveBeenCalledWith(
       expect.objectContaining({ title: "创建订阅失败，请稍后重试", variant: "destructive" })
+    );
+  });
+
+  it("saves the latest quick template when editing before React renders the store change", async () => {
+    const adapter = makeAdapter();
+    const options = {
+      subscriptionAdapter: adapter,
+      editingSubscription: {
+        id: "sub-1",
+        token: "old-token",
+        name: "Existing",
+        autoUpdateInterval: null,
+        smartNodeMatchingEnabled: true,
+      },
+      template: "full",
+      appliedTemplateId: "builtin-full",
+      enabledProxyGroups: ["select", "auto", "netflix"],
+      hiddenProxyGroups: ["youtube"],
+      customRules: [{ id: "old-rule", type: "DOMAIN", value: "old.example", proxy: "DIRECT" }],
+      ruleOrder: ["custom:old-rule"],
+    };
+    let hook = useRenderedHook(options);
+    hook.handleGenerateSubscription("quick");
+    hook = useRenderedHook(options);
+
+    // Applying a quick template updates Zustand before the existing save callback is replaced.
+    const currentOptions = makeOptions(options);
+    mocks.bag.storeState = {
+      ...currentOptions,
+      ...mocks.bag.storeState,
+      sources: currentOptions.storeSources,
+      template: "minimal",
+      appliedTemplateId: "builtin-minimal",
+      enabledProxyGroups: ["select", "auto"],
+      hiddenProxyGroups: [],
+      customRules: [],
+      ruleOrder: [],
+    };
+
+    await hook.handleCreateSubscription();
+
+    expect(adapter.saveSubscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isEditing: true,
+        subscriptionId: "sub-1",
+        payload: expect.objectContaining({
+          templateId: "builtin-minimal",
+          config: expect.objectContaining({
+            template: "minimal",
+            appliedTemplateId: "builtin-minimal",
+            enabledGroups: ["select", "auto"],
+            enabledRules: ["select", "auto"],
+            hiddenProxyGroups: [],
+            customRules: [],
+            ruleOrder: [],
+          }),
+        }),
+      })
     );
   });
 

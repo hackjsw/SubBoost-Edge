@@ -24,6 +24,7 @@ export interface WorkerEnv {
   EDGE_SESSION_SECRET?: string;
   GITHUB_TOKEN?: string;
   SUBCONVERTER_BACKEND?: string;
+  SUBCONVERTER_FALLBACK_BACKENDS?: string;
   ACL4SSR_CONFIG_URL?: string;
   CRON_SECRET?: string;
 }

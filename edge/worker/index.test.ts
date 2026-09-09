@@ -390,7 +390,7 @@ describe("EdgeSub worker", () => {
     expect(created.subscription.conversionProfileId).toBe("acl4ssr-online-mini");
 
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      new Response("proxies: []\nrules:\n  - MATCH,Proxy\n", {
+      new Response("proxies: [{name: Probe, type: trojan, server: example.com, port: 443, password: fake}]\nproxy-groups: [{name: Proxy, type: select, proxies: [Probe]}]\nrules:\n  - MATCH,Proxy\n", {
         headers: { "Content-Type": "text/plain", "Content-Length": "42" },
       })
     );
@@ -430,7 +430,7 @@ describe("EdgeSub worker", () => {
       );
       expect(head.status).toBe(200);
       expect(await head.text()).toBe("");
-      expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({ method: "HEAD" });
+      expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
 
       fetchImpl.mockClear();
       const raw = await handleRequest(
@@ -597,7 +597,7 @@ describe("EdgeSub worker", () => {
     const env = createEnv(kv);
     const cookie = await login(env);
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      new Response("proxies: []\n")
+      new Response("proxies: [{name: Probe, type: trojan, server: example.com, port: 443, password: fake}]\nproxy-groups: [{name: Proxy, type: select, proxies: [Probe]}]\nrules: [MATCH,Proxy]\n")
     );
     vi.stubGlobal("fetch", fetchImpl);
     try {
