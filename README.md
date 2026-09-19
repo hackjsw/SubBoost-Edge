@@ -1,3 +1,5 @@
+
+
 <!-- markdownlint-disable MD033 MD041 -->
 <div align="center">
   <p><img src="edge/public/edgesub-mark.svg" alt="EdgeSub" width="96"></p>
@@ -74,7 +76,7 @@ EdgeSub 将 SubBoost 的配置生成器和订阅管理能力部署到一个 Clou
 
 ### 1. 环境要求
 
-- Node.js `22.13+` 或 `24+`
+- Node.js `>=22.13.0 <23` 或 `>=24.0.0`
 - Cloudflare 账号和 Wrangler 登录状态
 - 一个用于绑定 `SUB_KV` 的 KV Namespace
 
