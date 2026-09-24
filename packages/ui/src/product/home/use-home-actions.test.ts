@@ -153,6 +153,31 @@ describe("useHomeActions", () => {
     expect(mocks.bag.interactions.configDownloaded).not.toHaveBeenCalled();
   });
 
+  it("downloads Base64 v2rayN nodes and reports incompatible entries", async () => {
+    vi.useFakeTimers();
+    const anchor = { href: "", download: "", style: { display: "" }, click: vi.fn() };
+    const createObjectURL = vi.fn<(file: Blob) => string>(() => "blob:v2rayn");
+    vi.stubGlobal("document", { body: { appendChild: vi.fn(), removeChild: vi.fn() }, createElement: () => anchor });
+    class TestURL extends URL {}
+    TestURL.createObjectURL = createObjectURL;
+    TestURL.revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", TestURL);
+    const yaml = "proxies:\n  - {name: keep, type: vmess, server: example.com, port: 443, uuid: test-id}\n  - {name: skip, type: snell}\n";
+    useRenderedHook({ generatedYaml: yaml }).handleDownload("quick", "v2rayn");
+    expect(anchor.download).toBe("v2rayn-subscription-20260606.txt");
+    const file = createObjectURL.mock.calls[0][0] as File;
+    expect(Buffer.from(await file.text(), "base64").toString("utf8")).toMatch(/^vmess:\/\//);
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "已导出 1 个 v2rayN 节点，跳过 1 个不兼容节点", variant: "warning" }));
+    vi.runAllTimers();
+  });
+
+  it("prevents downloading an empty v2rayN export", () => {
+    const recordConfigDownload = vi.fn();
+    useRenderedHook({ generatedYaml: "proxies: []", recordConfigDownload }).handleDownload("quick", "v2rayn");
+    expect(recordConfigDownload).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "无法导出 v2rayN", variant: "destructive" }));
+  });
+
   it("generates from existing nodes without re-importing pending sources", async () => {
     const generateConfig = vi.fn(() => "after");
     const parseMultipleSources = vi.fn();

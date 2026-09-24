@@ -435,6 +435,13 @@ describe("generateClashConfig", () => {
     });
   });
 
+  it("rejects a cycle through a generated dialer group and its target node", () => {
+    expect(() => generateClashConfig({
+      nodes: [ssNode({ name: "Target" })],
+      dialerProxyGroups: [{ id: "loop", name: "Loop", type: "select", relayNodes: ["Target"], targetNodes: ["Target"] }],
+    })).toThrow("存在循环");
+  });
+
   it("uses default base config when base YAML is omitted and skips malformed ordered group names", () => {
     const config = generateClashConfig({
       nodes: [ssNode()],
@@ -592,7 +599,7 @@ describe("generateClashConfig", () => {
     expect(config.proxies?.find((proxy) => proxy.name === "Target")).toMatchObject({
       "dialer-proxy": "Messy Chain",
     });
-    expect(config.proxies?.find((proxy) => proxy.name === "Blank Target")).toHaveProperty("dialer-proxy", " ");
+    expect(config.proxies?.find((proxy) => proxy.name === "Blank Target")).not.toHaveProperty("dialer-proxy");
     expect(config.proxies?.find((proxy) => proxy.name === "TLS VMess")).toMatchObject({
       "client-fingerprint": "chrome",
     });

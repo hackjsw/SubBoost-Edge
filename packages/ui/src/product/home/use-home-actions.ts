@@ -12,6 +12,8 @@ import {
 import { getCompactDateStampInBeijing } from "@subboost/core/time/beijing";
 import { useConfigStore } from "@subboost/ui/store/config-store";
 import { toast } from "@subboost/ui/components/ui/toaster";
+import { generateV2rayNSubscription } from "@subboost/core/generator/v2rayn";
+import { V2RAYN_EXPORT_NOTICE, type SubscriptionFormat } from "@subboost/core/subscription/output-format";
 
 type UseHomeActionsOptions = {
   generatedYaml: string;
@@ -38,8 +40,24 @@ export function useHomeActions({
 }: UseHomeActionsOptions) {
   const interactions = useProductInteractionAdapter();
 
-  const handleDownload = React.useCallback((mode: ProductMode) => {
+  const handleDownload = React.useCallback((mode: ProductMode, format: SubscriptionFormat = "clash") => {
     if (!generatedYaml || generatedYamlError) return;
+
+    let content = generatedYaml;
+    if (format === "v2rayn") {
+      try {
+        const result = generateV2rayNSubscription(generatedYaml);
+        content = result.content;
+        toast({
+          title: `已导出 ${result.nodeCount} 个 v2rayN 节点${result.skippedNodes.length ? `，跳过 ${result.skippedNodes.length} 个不兼容节点` : ""}`,
+          description: `${V2RAYN_EXPORT_NOTICE}${result.providerCount ? ` 已跳过 ${result.providerCount} 个远程节点提供者。` : ""}`,
+          variant: result.skippedNodes.length || result.providerCount ? "warning" : "info",
+        });
+      } catch (error) {
+        toast({ title: "无法导出 v2rayN", description: error instanceof Error ? error.message : "请检查节点配置", variant: "destructive" });
+        return;
+      }
+    }
 
     recordConfigDownload?.(appliedTemplateId);
 
@@ -51,9 +69,9 @@ export function useHomeActions({
     });
 
     const timestamp = getCompactDateStampInBeijing();
-    const filename = `clash-config-${timestamp}.yaml`;
-    const blob = new Blob([generatedYaml], { type: "application/x-yaml;charset=utf-8" });
-    const file = new File([blob], filename, { type: "application/x-yaml;charset=utf-8" });
+    const filename = format === "v2rayn" ? `v2rayn-subscription-${timestamp}.txt` : `clash-config-${timestamp}.yaml`;
+    const mimeType = format === "v2rayn" ? "text/plain;charset=utf-8" : "application/x-yaml;charset=utf-8";
+    const file = new File([content], filename, { type: mimeType });
     const url = URL.createObjectURL(file);
 
     const a = document.createElement("a");

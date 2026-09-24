@@ -20,6 +20,10 @@
       "id": "58db6bee88a44a19a9457a465d6eb693"
     }
   ],
+  "durable_objects": {
+    "bindings": [{ "name": "SUB_STORE", "class_name": "SubscriptionStore" }]
+  },
+  "migrations": [{ "tag": "v1-subscription-store", "new_sqlite_classes": ["SubscriptionStore"] }],
   "triggers": {
     "crons": ["*/15 * * * *", "17 3 * * *"]
   },

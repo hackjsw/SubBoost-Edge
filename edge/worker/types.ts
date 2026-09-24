@@ -17,7 +17,17 @@ export interface AssetFetcherLike {
   fetch(request: Request): Promise<Response>;
 }
 
+export interface DurableObjectStubLike {
+  fetch(request: Request): Promise<Response>;
+}
+
+export interface DurableObjectNamespaceLike {
+  idFromName(name: string): unknown;
+  get(id: unknown): DurableObjectStubLike;
+}
+
 export interface WorkerEnv {
+  SUB_STORE?: DurableObjectNamespaceLike;
   SUB_KV?: KVNamespaceLike;
   ASSETS?: AssetFetcherLike;
   EDGE_ADMIN_PASSWORD?: string;
@@ -57,4 +67,5 @@ export interface SubRequestParams {
   filterRegions?: string | string[];
   defaultRegion?: string;
   dedupMode: boolean;
+  dedupStrategy?: "endpoint" | "identity";
 }

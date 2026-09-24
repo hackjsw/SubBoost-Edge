@@ -2,6 +2,8 @@ import {
   getClashConversionProfile,
   isClashConversionProfileId,
 } from "@subboost/core/subscription/clash-conversion-profiles";
+import { parseNodeLink } from "@subboost/core/parser/parse-node-link";
+import { stableJsonStringify } from "@subboost/core/node-identity";
 import {
   ACL4SSR_CONFIG_URL,
   CF_NON_TLS_PORTS,
@@ -67,6 +69,7 @@ export async function getSubParams(request: Request): Promise<SubRequestParams> 
       filterRegions: regionFilterValue(body.regions),
       defaultRegion: stringValue(body.default_region) || undefined,
       dedupMode: body.dedup !== false,
+      dedupStrategy: body.dedup_strategy === "identity" ? "identity" : "endpoint",
     };
   }
 
@@ -80,6 +83,7 @@ export async function getSubParams(request: Request): Promise<SubRequestParams> 
     filterRegions: url.searchParams.get("regions") || undefined,
     defaultRegion: url.searchParams.get("default_region") || undefined,
     dedupMode: url.searchParams.get("dedup") !== "false",
+    dedupStrategy: url.searchParams.get("dedup_strategy") === "identity" ? "identity" : "endpoint",
   };
 }
 
@@ -99,6 +103,7 @@ export async function handleShorten(request: Request, env: WorkerEnv): Promise<R
     template: stringValue(body.template),
     source,
     dedup: booleanValue(body.dedup, true),
+    ...(body.dedup_strategy === "identity" ? { dedup_strategy: "identity" } : {}),
     ...(profile ? { profile } : {}),
   };
   const bodyString = JSON.stringify(stored);
@@ -131,6 +136,7 @@ async function resolveShortLinkParams(
       source: stringValue(data.source) || params.source,
       template: typeof data.template === "string" ? data.template : params.template,
       dedupMode: typeof data.dedup === "boolean" ? data.dedup : params.dedupMode,
+      dedupStrategy: data.dedup_strategy === "identity" ? "identity" as const : params.dedupStrategy,
       profile: typeof data.profile === "string" ? data.profile : params.profile,
     };
     const refresh = env.SUB_KV.put(params.id, stored, { expirationTtl: KV_TTL });
@@ -142,10 +148,24 @@ async function resolveShortLinkParams(
   }
 }
 
-export function dedupeNodes(nodes: EdgeNode[]): EdgeNode[] {
+function connectionIdentity(link: string): string {
+  try {
+    if (/^vmess:\/\//i.test(link)) {
+      const node = JSON.parse(safeBase64Decode(link.slice(8))) as Record<string, unknown>;
+      delete node.ps;
+      return `vmess:${stableJsonStringify(node)}`;
+    }
+    const url = new URL(link);
+    url.hash = "";
+    url.searchParams.sort();
+    return url.toString();
+  } catch { return link.split("#")[0]; }
+}
+
+export function dedupeNodes(nodes: EdgeNode[], strategy: "endpoint" | "identity" = "endpoint"): EdgeNode[] {
   const seen = new Set<string>();
   return nodes.filter((node) => {
-    const key = node.ip && node.port ? `${node.ip}:${node.port}` : node.link;
+    const key = strategy === "identity" ? connectionIdentity(node.link) : node.ip && node.port ? `${node.ip}:${node.port}` : node.link;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -214,7 +234,11 @@ function parseNodeList(lines: string[]): ExtractedNode[] {
           port = String(config.port || "443");
           name = stringValue(config.ps);
         } else if (protocol === "ss" || protocol === "ssr") {
-          continue;
+          const parsed = parseNodeLink(line);
+          if (!parsed) continue;
+          host = parsed.server || "";
+          port = String(parsed.port);
+          name = parsed.name;
         } else {
           const parsed = new URL(line.replace(/^[a-z0-9+\-.]+:\/\//i, "http://"));
           host = parsed.hostname;
@@ -351,13 +375,16 @@ export async function processData(template: string, source: string, defaultRegio
     }
   }
 
-  const rawLines = source.split(/[\n\r,]+/).map((line) => line.trim()).filter(Boolean);
+  const rawLines = source.split(/[\n\r]+/).flatMap(line => {
+    // Commas inside a URI belong to ALPN/path/credentials. A comma immediately
+    // followed by another URI still separates the legacy URI-list form.
+    return line.includes("://") ? line.split(/,(?=[a-z][a-z0-9+.-]*:\/\/)/i) : line.split(",");
+  }).map(line => line.trim()).filter(Boolean);
   const extracted = await extractNodes(rawLines);
   const results: EdgeNode[] = [];
 
   for (const item of extracted) {
     const protocol = item.protocol.toLowerCase();
-    if (protocol === "ss" || protocol === "ssr" || item.originalLink?.toLowerCase().startsWith("ss://")) continue;
     const host = item.host.replace(/^\[|\]$/g, "");
     if (!host || host.toLowerCase() === "workers.dev" || host.toLowerCase().endsWith(".workers.dev")) continue;
 
@@ -442,7 +469,7 @@ export async function handleSub(
     let nodes = await processData(params.template, params.source, params.defaultRegion);
     const regions = normalizedRegions(params.filterRegions);
     if (regions.length) nodes = nodes.filter((node) => regions.includes(node.region));
-    if (params.dedupMode) nodes = dedupeNodes(nodes);
+    if (params.dedupMode) nodes = dedupeNodes(nodes, params.dedupStrategy);
     if (shortResolved.isShortLink) nodes = prependExpiryHint(nodes);
     if (params.jsonMode) return json(nodes);
 

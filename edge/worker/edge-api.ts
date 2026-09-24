@@ -10,6 +10,13 @@ import {
   type SubscriptionResponseInfo,
 } from "@subboost/core/subscription/subscription-response-info";
 import type { ParsedNode } from "@subboost/core/types/node";
+import { load as loadYaml } from "js-yaml";
+import { validateProxyReferences } from "@subboost/core/generator/validate-references";
+import { generateClashYaml } from "@subboost/core/generator";
+import { isMihomoSupportedProxyNode } from "@subboost/core/mihomo/proxy-sanitizer";
+import { buildGenerateOptionsFromConfig } from "@subboost/core/subscription/config-utils";
+import { getSubscriptionFormat, type SubscriptionFormat } from "@subboost/core/subscription/output-format";
+import { buildV2rayNResponse } from "@subboost/server-core/subscription/output-response";
 import { validateCronSecret } from "@subboost/server-core/cron-auth";
 import { prepareRefreshCacheResult } from "@subboost/server-core/subscription/refresh-cache-result";
 import { refreshNodeSnapshot } from "@subboost/server-core/subscription/refresh-node-snapshot";
@@ -36,6 +43,7 @@ import { isAuthenticated } from "./auth";
 import { json, methodNotAllowed, readJsonBody } from "./http";
 import { fetchRemoteText } from "./remote-fetch";
 import { createStoredConfigCapability } from "./stored-config-capability";
+import { readStoredValue, writeStoredValue } from "./subscription-store";
 import {
   invalidateStoredConfigCache,
   loadStoredConfigResponse,
@@ -93,6 +101,7 @@ type StoredSubscription = {
   lastSuccessAt?: string;
   nextUpdateAt?: string;
   lastError?: string;
+  staleUserInfoSourceIds?: string[];
 };
 
 type SubscriptionScheduleMetadata = {
@@ -141,6 +150,58 @@ function normalizeStringList(value: unknown): string[] {
 function normalizeStoredNodes(value: unknown): ParsedNode[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isRecord) as ParsedNode[];
+}
+
+function validateStoredNodes(nodes: unknown[]): Response | null {
+  if (nodes.length > MAX_MANAGED_SUBSCRIPTION_NODES) return json({ error: "节点数量超过订阅上限" }, 413);
+  for (const node of nodes) {
+    if (!isRecord(node) || typeof node.name !== "string" || !node.name.trim()
+      || typeof node.type !== "string" || !node.type.trim() || !isMihomoSupportedProxyNode(node)) {
+      return json({ error: "节点名称、类型或协议必填字段无效" }, 400);
+    }
+    if (["direct", "reject", "dns"].includes(String(node.type))) continue;
+    const endpoints = node.type === "wireguard" && Array.isArray(node.peers) && node.peers.length ? node.peers : [node];
+    if (endpoints.some(endpoint => !isRecord(endpoint) || typeof endpoint.server !== "string" || !endpoint.server.trim()
+      || typeof endpoint.port !== "number" || !Number.isInteger(endpoint.port) || endpoint.port < 1 || endpoint.port > 65535)) {
+      return json({ error: "节点必须具有有效的服务器地址和端口" }, 400);
+    }
+  }
+  return null;
+}
+
+function validateStoredYaml(yaml: string): Response | null {
+  let parsed: unknown;
+  try {
+    parsed = loadYaml(yaml);
+  } catch {
+    return json({ error: "配置文件不是有效的 YAML" }, 400);
+  }
+  if (!isRecord(parsed)) return json({ error: "配置必须是 YAML 对象" }, 400);
+  const proxies = parsed.proxies;
+  if (proxies !== undefined && !Array.isArray(proxies)) return json({ error: "配置中的 proxies 必须是数组" }, 400);
+  const nodeError = validateStoredNodes((proxies ?? []) as unknown[]);
+  if (nodeError) return nodeError;
+  const rawGroups = parsed["proxy-groups"];
+  if (rawGroups !== undefined && (!Array.isArray(rawGroups) || !rawGroups.every(group => isRecord(group) && typeof group.type === "string" && group.type.trim()))) {
+    return json({ error: "配置中的 proxy-groups 必须是具有类型的对象数组" }, 400);
+  }
+  const providers = parsed["proxy-providers"];
+  if (providers !== undefined && (!isRecord(providers) || !Object.entries(providers).every(([name, provider]) => {
+    if (!name.trim() || !isRecord(provider)) return false;
+    if (provider.type === "http") {
+      try { return typeof provider.url === "string" && ["http:", "https:"].includes(new URL(provider.url).protocol); }
+      catch { return false; }
+    }
+    if (provider.type === "file") return typeof provider.path === "string" && Boolean(provider.path.trim());
+    return provider.type === "inline" && Array.isArray(provider.payload) && provider.payload.length > 0 && !validateStoredNodes(provider.payload);
+  }))) {
+    return json({ error: "配置中的 proxy-providers 定义无效" }, 400);
+  }
+  // Explicit proxies: [] remains valid for a deliberately direct-only snapshot.
+  if (proxies === undefined && (!isRecord(providers) || Object.keys(providers).length === 0)) return json({ error: "配置缺少 proxies 或 proxy-providers" }, 400);
+  try { validateProxyReferences(parsed); }
+  catch (error) { return json({ error: error instanceof Error ? error.message : "配置引用无效" }, 400); }
+  return null;
 }
 
 function normalizeAutoUpdateInterval(value: unknown): number | null | undefined {
@@ -203,6 +264,7 @@ function parseStoredSubscription(value: string): { record: StoredSubscription; m
       ...(typeof raw.lastSuccessAt === "string" ? { lastSuccessAt: raw.lastSuccessAt } : {}),
       ...(typeof raw.nextUpdateAt === "string" ? { nextUpdateAt: raw.nextUpdateAt } : {}),
       ...(typeof raw.lastError === "string" ? { lastError: raw.lastError.slice(0, 500) } : {}),
+      ...(Array.isArray(raw.staleUserInfoSourceIds) ? { staleUserInfoSourceIds: normalizeStringList(raw.staleUserInfoSourceIds) } : {}),
     },
   };
 }
@@ -242,6 +304,10 @@ async function putStoredSubscriptionIfUnchanged(
   const kv = env.SUB_KV;
   if (!kv) return false;
   let wrote = false;
+  if (env.SUB_STORE) {
+    invalidateStoredConfigCache(token);
+    return writeStoredValue(env, token, expected, JSON.stringify(record), subscriptionScheduleMetadata(record));
+  }
   // Invalidate before entering the per-token queue so a pending mutation
   // cannot leave an already-cached response authoritative while it waits.
   invalidateStoredConfigCache(token);
@@ -283,6 +349,10 @@ async function deleteStoredSubscriptionIfUnchanged(
   const kv = env.SUB_KV;
   if (!kv) return false;
   let deleted = false;
+  if (env.SUB_STORE) {
+    invalidateStoredConfigCache(token);
+    return writeStoredValue(env, token, expected, null);
+  }
   invalidateStoredConfigCache(token);
   await enqueueStoredMutation(token, async () => {
     const current = await kv.get(key);
@@ -476,6 +546,7 @@ async function refreshStoredSubscription(
       nodes: result.cacheEntry.nodes,
       config: { ...record.config, sources: snapshot.savedSources },
       subscriptionInfo: result.cacheEntry.subscriptionInfo,
+      staleUserInfoSourceIds: snapshot.staleUserInfoSourceIds ?? [],
       updatedAt: attemptedAt,
       lastAttemptedAt: attemptedAt,
       lastSuccessAt: attemptedAt,
@@ -645,7 +716,7 @@ function buildStoredSubscription(
   existing?: StoredSubscription
 ): { record: StoredSubscription } | { response: Response } {
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 100) : "EdgeSub";
-  const yaml = typeof body.yaml === "string" ? body.yaml : "";
+  let yaml = typeof body.yaml === "string" ? body.yaml : "";
   if (!yaml.trim()) return { response: json({ error: "请先生成配置" }, 400) };
   if (byteLength(yaml) > MAX_STORED_YAML_BYTES) {
     return { response: json({ error: "配置文件过大" }, 413) };
@@ -658,8 +729,28 @@ function buildStoredSubscription(
     };
   }
   const urls = normalizeStringList(body.urls);
+  if (body.nodes !== undefined && !Array.isArray(body.nodes)) return { response: json({ error: "nodes 必须是数组" }, 400) };
+  if (body.config !== undefined && !isRecord(body.config)) return { response: json({ error: "config 必须是对象" }, 400) };
+  const nodeValidationError = validateStoredNodes((body.nodes ?? []) as unknown[]);
+  if (nodeValidationError) return { response: nodeValidationError };
   const nodes = normalizeStoredNodes(body.nodes);
+  const yamlValidationError = validateStoredYaml(yaml);
+  if (yamlValidationError) return { response: yamlValidationError };
   const config = isRecord(body.config) ? body.config : {};
+  if (Array.isArray(body.nodes) || hasRefreshSource(config, urls)) {
+    try {
+      // Structured saves and refreshes share one generator. Client YAML can be
+      // stale after an edit, so the saved node/config snapshot is authoritative.
+      const options = buildGenerateOptionsFromConfig(config, { nodes });
+      if (nodes.length === 0 && !options.proxyProviders) return { response: json({ error: "请先导入有效节点或配置节点提供者" }, 400) };
+      yaml = generateClashYaml(options);
+    } catch (error) {
+      return { response: json({ error: error instanceof Error ? error.message : "配置生成失败" }, 400) };
+    }
+    if (byteLength(yaml) > MAX_STORED_YAML_BYTES) return { response: json({ error: "配置文件过大" }, 413) };
+    const generatedValidationError = validateStoredYaml(yaml);
+    if (generatedValidationError) return { response: generatedValidationError };
+  }
   const hasConversionProfile = Object.prototype.hasOwnProperty.call(body, "conversionProfileId");
   if (hasConversionProfile && !isClashConversionProfileId(body.conversionProfileId)) {
     return { response: json({ error: "无效的 Clash 规则方案" }, 400) };
@@ -727,7 +818,7 @@ async function loadStoredSubscription(
   if (!env.SUB_KV || !TOKEN_PATTERN.test(token)) return null;
   let stored: string | null;
   try {
-    stored = await env.SUB_KV.get(`${CONFIG_KEY_PREFIX}${token}`);
+    stored = (await readStoredValue(env, token)).value;
   } catch {
     return null;
   }
@@ -763,6 +854,10 @@ async function persistStoredSubscription(
     return persisted ? null : json({ error: "订阅已被其他请求更新，请重试" }, 409);
   }
   invalidateStoredConfigCache(token);
+  if (env.SUB_STORE) {
+    const created = await writeStoredValue(env, token, null, stored, subscriptionScheduleMetadata(record));
+    return created ? null : json({ error: "订阅标识冲突，请重试" }, 409);
+  }
   await enqueueStoredMutation(token, async () => {
     await env.SUB_KV!.put(`${CONFIG_KEY_PREFIX}${token}`, stored, {
       metadata: subscriptionScheduleMetadata(record),
@@ -873,7 +968,9 @@ export async function handleSubscriptionRecord(request: Request, env: WorkerEnv)
     if (!body) return json({ error: "无效的 JSON 请求" }, 400);
     const name = typeof body.name === "string" ? body.name.trim().slice(0, 100) : record.name;
     if (!name) return json({ error: "订阅名称不能为空" }, 400);
-    const autoUpdateInterval = normalizeAutoUpdateInterval(body.autoUpdateInterval);
+    const autoUpdateInterval = Object.prototype.hasOwnProperty.call(body, "autoUpdateInterval")
+      ? normalizeAutoUpdateInterval(body.autoUpdateInterval)
+      : record.autoUpdateInterval;
     if (autoUpdateInterval === undefined) {
       return json({ error: `自动更新间隔不能小于 ${MIN_AUTO_UPDATE_INTERVAL_SECONDS / 3600} 小时` }, 400);
     }
@@ -893,9 +990,11 @@ export async function handleSubscriptionRecord(request: Request, env: WorkerEnv)
             : record.config.smartNodeMatchingEnabled !== false,
       },
     };
-    delete next.lastError;
-    if (autoUpdateInterval) next.nextUpdateAt = nextUpdateTime(new Date(), autoUpdateInterval);
-    else delete next.nextUpdateAt;
+    if (autoUpdateInterval !== record.autoUpdateInterval) {
+      delete next.lastError;
+      if (autoUpdateInterval) next.nextUpdateAt = nextUpdateTime(new Date(), autoUpdateInterval);
+      else delete next.nextUpdateAt;
+    }
 
     const persistenceError = await persistStoredSubscription(env, token, next, expectedStored);
     if (persistenceError) return persistenceError;
@@ -929,10 +1028,19 @@ export async function handleStoredConfig(
   if (!TOKEN_PATTERN.test(token)) return storedConfigError("Subscription not found", 404, method);
 
   const raw = requestUrl.searchParams.get("raw") === "1";
+  const format = getSubscriptionFormat(request.url);
+  // Check the authoritative revision before reusing an isolate-local response.
+  // A write or deletion in another isolate must not leave an old config active.
+  let snapshot: Awaited<ReturnType<typeof readStoredValue>> | undefined;
+  if (env.SUB_STORE) {
+    try { snapshot = await readStoredValue(env, token); }
+    catch { return storedConfigError("Stored subscription is unavailable", 503, method); }
+    if (snapshot.value === null) return storedConfigError("Subscription not found", 404, method);
+  }
   return loadStoredConfigResponse(
-    storedConfigCacheKey(token, method, raw),
+    storedConfigCacheKey(token, method, raw, format) + (snapshot?.revision ? `:${snapshot.revision}` : ""),
     { method },
-    () => loadStoredConfigFromKv(request, env, token, method, raw, ctx)
+    () => loadStoredConfigFromKv(request, env, token, method, raw, format, ctx, snapshot?.value ?? undefined)
   );
 }
 
@@ -942,14 +1050,16 @@ async function loadStoredConfigFromKv(
   token: string,
   method: "GET" | "HEAD",
   raw: boolean,
-  ctx?: ExecutionContextLike
+  format: SubscriptionFormat,
+  ctx?: ExecutionContextLike,
+  prefetched?: string
 ): Promise<Response> {
   const kv = env.SUB_KV;
   if (!kv) return storedConfigError("KV is not configured", 503, method);
   const key = `${CONFIG_KEY_PREFIX}${token}`;
   let stored: string | null;
   try {
-    stored = await kv.get(key);
+    stored = prefetched ?? (await readStoredValue(env, token)).value;
   } catch {
     return storedConfigError("Stored subscription is unavailable", 503, method);
   }
@@ -976,7 +1086,10 @@ async function loadStoredConfigFromKv(
     headers.set("X-SubBoost-Storage", "persistent-kv");
     headers.set("X-SubBoost-Auto-Update", record.autoUpdateInterval ? "enabled" : "disabled");
     headers.set("X-SubBoost-Last-Updated", record.updatedAt);
+    headers.set("X-SubBoost-Stale-Userinfo", String(record.staleUserInfoSourceIds?.length ?? 0));
     if (record.nextUpdateAt) headers.set("X-SubBoost-Next-Update", record.nextUpdateAt);
+
+    if (format === "v2rayn") return buildV2rayNResponse(record.yaml, headers, method);
 
     if (!raw) {
       const profile = getClashConversionProfile(record.conversionProfileId);
@@ -996,6 +1109,7 @@ async function loadStoredConfigFromKv(
           requireExplicitBackend: true,
           responseHeaders: headers,
           originalProxies: templateSource.proxies,
+          originalConfig: templateSource.config,
         });
       }
     }
@@ -1026,13 +1140,13 @@ export async function runScheduledSubscriptionUpdates(
       summary.scanned += 1;
       const token = key.name.slice(CONFIG_KEY_PREFIX.length);
       const dueFromMetadata = metadataUpdateDue(key.metadata, now);
-      if (dueFromMetadata === false) {
+      if (dueFromMetadata === false && !env.SUB_STORE) {
         summary.skipped += 1;
         continue;
       }
 
       try {
-        const stored = await env.SUB_KV.get(key.name);
+        const stored = (await readStoredValue(env, token)).value;
         if (!stored) {
           summary.skipped += 1;
           continue;

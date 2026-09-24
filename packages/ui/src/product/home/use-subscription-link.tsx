@@ -35,6 +35,7 @@ import {
   type ClashConversionProfileId,
 } from "@subboost/core/subscription/clash-conversion-profiles";
 import { DEFAULT_NODE_NAME_TEMPLATE } from "@subboost/core/node-name-template";
+import { buildSubscriptionFormatUrl, type SubscriptionFormat } from "@subboost/core/subscription/output-format";
 import { formatDateInBeijing } from "@subboost/core/time/beijing";
 import {
   useProductInteractionAdapter,
@@ -172,6 +173,7 @@ export function useSubscriptionLink({
   }, [defaultConversionProfileId, editingSubscription]);
   const [isCreatingSubscription, setIsCreatingSubscription] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
+  const [copiedFormat, setCopiedFormat] = React.useState<SubscriptionFormat>("clash");
   const [saveRequirementDialog, setSaveRequirementDialog] = React.useState(false);
   const [subscriptionFlowMode, setSubscriptionFlowMode] = React.useState<ProductMode>("quick");
   const interactions = useProductInteractionAdapter();
@@ -567,11 +569,12 @@ export function useSubscriptionLink({
   ]);
 
   // 复制订阅链接
-  const handleCopyUrl = React.useCallback(async () => {
+  const handleCopyUrl = React.useCallback(async (format: SubscriptionFormat = "clash") => {
     if (!subscriptionUrl) return;
 
     try {
-      await navigator.clipboard.writeText(subscriptionUrl);
+      await navigator.clipboard.writeText(buildSubscriptionFormatUrl(subscriptionUrl, format));
+      setCopiedFormat(format);
       setCopied(true);
       interactions.subscriptionLinkCopied?.({
         mode: subscriptionFlowMode,
@@ -605,6 +608,7 @@ export function useSubscriptionLink({
     setConversionProfileId,
     isCreatingSubscription,
     copied,
+    copiedFormat,
     setCopied,
     saveRequirementDialog,
     setSaveRequirementDialog,

@@ -6,6 +6,7 @@ import { Input } from "@subboost/ui/components/ui/input";
 import { Label } from "@subboost/ui/components/ui/label";
 import { Switch } from "@subboost/ui/components/ui/switch";
 import { SmartNodeMatchingHelp } from "@subboost/ui/components/subscription/smart-node-matching-help";
+import { buildSubscriptionFormatUrl, V2RAYN_EXPORT_NOTICE, type SubscriptionFormat } from "@subboost/core/subscription/output-format";
 import {
   Dialog,
   DialogContent,
@@ -36,8 +37,10 @@ type Props = {
   setSmartNodeMatchingEnabled: (value: boolean) => void;
   isCreatingSubscription: boolean;
   copied: boolean;
+  copiedFormat?: SubscriptionFormat;
+  supportsV2rayN?: boolean;
   isEditingExistingSubscription: boolean;
-  handleCopyUrl: () => void;
+  handleCopyUrl: (format?: SubscriptionFormat) => void;
   handleCreateSubscription: () => void;
 };
 
@@ -58,6 +61,8 @@ export function SubscriptionLinkDialog({
   setSmartNodeMatchingEnabled,
   isCreatingSubscription,
   copied,
+  copiedFormat = "clash",
+  supportsV2rayN = false,
   isEditingExistingSubscription,
   handleCopyUrl,
   handleCreateSubscription,
@@ -77,7 +82,7 @@ export function SubscriptionLinkDialog({
           </DialogTitle>
           <DialogDescription>
             {subscriptionUrl
-              ? "复制下方链接到 Clash 客户端导入使用"
+              ? (supportsV2rayN ? "选择 Clash / Mihomo 或 v2rayN 订阅链接导入使用" : "复制下方链接到 Clash 客户端导入使用")
               : isEditingExistingSubscription
                 ? "将覆盖该订阅的配置与订阅源，链接保持不变"
                 : linkStorageMode === "rolling-kv"
@@ -171,16 +176,17 @@ export function SubscriptionLinkDialog({
         ) : (
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">订阅链接</label>
+              {supportsV2rayN && <label htmlFor="clash-subscription-url" className="text-sm font-medium">Clash / Mihomo（原链接）</label>}
               <div className="flex gap-2">
-                <Input value={subscriptionUrl} readOnly className="font-mono text-xs" />
+                <Input id="clash-subscription-url" value={subscriptionUrl} readOnly className="font-mono text-xs" />
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={handleCopyUrl}
+                  onClick={() => handleCopyUrl()}
+                  aria-label="复制 Clash 订阅链接"
                   className="flex-shrink-0"
                 >
-                  {copied ? (
+                  {copied && copiedFormat === "clash" ? (
                     <Check className="h-4 w-4 text-green-400" />
                   ) : (
                     <Copy className="h-4 w-4" />
@@ -188,6 +194,19 @@ export function SubscriptionLinkDialog({
                 </Button>
               </div>
             </div>
+
+            {supportsV2rayN && (
+              <div className="space-y-2">
+                <label htmlFor="v2rayn-subscription-url" className="text-sm font-medium">v2rayN（Base64 节点订阅）</label>
+                <div className="flex gap-2">
+                  <Input id="v2rayn-subscription-url" value={buildSubscriptionFormatUrl(subscriptionUrl, "v2rayn")} readOnly className="font-mono text-xs" />
+                  <Button variant="outline" size="icon" onClick={() => handleCopyUrl("v2rayn")} aria-label="复制 v2rayN 订阅链接" className="flex-shrink-0">
+                    {copied && copiedFormat === "v2rayn" ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <p className="text-xs leading-relaxed text-white/60">{V2RAYN_EXPORT_NOTICE}</p>
+              </div>
+            )}
 
             <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-sm">
               <p className="text-green-200 font-medium mb-1">

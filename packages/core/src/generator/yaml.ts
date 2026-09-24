@@ -335,7 +335,7 @@ export function configToYaml(config: ClashConfig): string {
   }
 
   // === 代理节点（每个节点一行内联）===
-  lines.push("proxies:");
+  lines.push(config.proxies?.length ? "proxies:" : "proxies: []");
   if (config.proxies && config.proxies.length > 0) {
     for (const proxy of config.proxies) {
       const orderedProxy = canonicalizeProxy(proxy as unknown as Record<string, unknown>);
@@ -345,7 +345,7 @@ export function configToYaml(config: ClashConfig): string {
   lines.push("");
 
   // === 代理组（块样式，但 proxies 数组内联）===
-  lines.push("proxy-groups:");
+  lines.push(config["proxy-groups"]?.length ? "proxy-groups:" : "proxy-groups: []");
   if (config["proxy-groups"]) {
     for (const group of config["proxy-groups"]) {
       const record = group as unknown as Record<string, unknown>;

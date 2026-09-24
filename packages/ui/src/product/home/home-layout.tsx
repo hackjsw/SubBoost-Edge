@@ -26,6 +26,7 @@ import { useProductInteractionAdapter, type ProductMode } from "@subboost/ui/pro
 import { cn } from "@subboost/ui/lib/utils";
 import type { User } from "@subboost/ui/store/user-store";
 import type { AutoUpdateIntervalPolicy } from "@subboost/core/subscription/auto-update-interval";
+import type { SubscriptionFormat } from "@subboost/core/subscription/output-format";
 import type {
   ClashConversionProfile,
   ClashConversionProfileId,
@@ -59,18 +60,20 @@ type SubscriptionLinkState = {
   setConversionProfileId: (value: ClashConversionProfileId) => void;
   isCreatingSubscription: boolean;
   copied: boolean;
+  copiedFormat?: SubscriptionFormat;
   saveRequirementDialog: boolean;
   setSaveRequirementDialog: (open: boolean) => void;
   isEditingExistingSubscription: boolean;
   handleGenerateSubscription: (mode: ProductMode) => void;
   handleAcceptSaveRequirement: () => void;
   handleCreateSubscription: () => void;
-  handleCopyUrl: () => void;
+  handleCopyUrl: (format?: SubscriptionFormat) => void;
 };
 
 type Props = {
   brandName?: string;
   brandDescription?: string;
+  supportsV2rayN?: boolean;
   showAiColumn: boolean;
   user: User | null;
   authChecked: boolean;
@@ -85,7 +88,7 @@ type Props = {
   hasValidSources: boolean;
 
   handleGenerate: (mode: ProductMode) => void;
-  handleDownload: (mode: ProductMode) => void;
+  handleDownload: (mode: ProductMode, format?: SubscriptionFormat) => void;
 
   subscription: SubscriptionLinkState;
   noticeSlot?: React.ReactNode;
@@ -105,6 +108,7 @@ const DESKTOP_PANEL_CONTENT_MIN_HEIGHT_CLASS = "lg:min-h-[30rem]";
 export function HomeLayout({
   brandName = "SubBoost",
   brandDescription = "Clash 订阅转换、生成与管理服务，支持链式代理、智能分流、多协议和多订阅聚合",
+  supportsV2rayN = false,
   showAiColumn,
   user,
   authChecked,
@@ -337,8 +341,20 @@ export function HomeLayout({
                   onClick={() => handleDownload(configTab)}
                 >
                   <Download className="mr-2 h-4 w-4" />
-                  下载配置
+                  {supportsV2rayN ? "下载 Clash" : "下载配置"}
                 </Button>
+                {supportsV2rayN && (
+                  <Button
+                    className="h-10"
+                    variant="outline"
+                    disabled={!generatedYaml || Boolean(generatedYamlError)}
+                    onClick={() => handleDownload(configTab, "v2rayn")}
+                    title="导出适用于 v2rayN 的 Base64 节点订阅"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    下载 v2rayN
+                  </Button>
+                )}
                 <Button
                   className="h-10"
                   variant="outline"
@@ -402,6 +418,8 @@ export function HomeLayout({
         setSmartNodeMatchingEnabled={subscription.setSmartNodeMatchingEnabled}
         isCreatingSubscription={subscription.isCreatingSubscription}
         copied={subscription.copied}
+        copiedFormat={subscription.copiedFormat}
+        supportsV2rayN={supportsV2rayN}
         isEditingExistingSubscription={subscription.isEditingExistingSubscription}
         handleCopyUrl={subscription.handleCopyUrl}
         handleCreateSubscription={subscription.handleCreateSubscription}

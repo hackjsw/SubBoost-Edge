@@ -75,6 +75,7 @@ export type RefreshNodeSnapshotResult = {
   detachedSourceCount: number;
   failedSourceCount: number;
   failedSources: RefreshNodeSnapshotFailedSource[];
+  staleUserInfoSourceIds?: string[];
 };
 
 function getDeletedNodeNames(config: Record<string, unknown>): string[] {
@@ -132,6 +133,7 @@ export async function refreshNodeSnapshot(
     .filter(Boolean) as ParsedNode[];
 
   const subscriptionInfo: SubscriptionResponseInfo = {};
+  const userInfoBySource = new Map<string, SubscriptionUserInfo>();
   const profileWebPageUrlState: StableMetadataState = { conflicted: false };
   const planNameState: StableMetadataState = { conflicted: false };
   const attemptedUrlFetch = savedSources.some((source) => source.type === "url" && !source.useProxyProviders);
@@ -193,9 +195,10 @@ export async function refreshNodeSnapshot(
   const mergeSourceSubscriptionInfo = (sourceId: string, info: SubscriptionUserInfo | undefined) => {
     updateSourceSubscriptionInfo(sourceId, info);
     const normalized = normalizeSubscriptionUserInfo(info);
-    if (hasSubscriptionUserInfo(normalized)) {
-      mergeSubscriptionUserInfo(subscriptionInfo, normalized);
-    }
+    if (hasSubscriptionUserInfo(normalized)) userInfoBySource.set(sourceId, normalized!);
+    else userInfoBySource.delete(sourceId);
+    for (const key of ["upload", "download", "total", "expire"] as const) delete subscriptionInfo[key];
+    for (const value of userInfoBySource.values()) mergeSubscriptionUserInfo(subscriptionInfo, value);
   };
 
   const shouldFetchSupplementalUserInfoForSource = (source: SavedSource): boolean => {
@@ -243,7 +246,7 @@ export async function refreshNodeSnapshot(
         fetched.ok ? fetched.nodes : []
       );
       if (hasSubscriptionUserInfo(resolvedUserInfo)) {
-        mergeSubscriptionUserInfo(subscriptionInfo, resolvedUserInfo);
+        mergeSourceSubscriptionInfo(source.id, resolvedUserInfo);
       }
 
       if (!fetched.ok || fetched.nodes.length === 0) {
@@ -265,7 +268,7 @@ export async function refreshNodeSnapshot(
         });
         continue;
       }
-      updateSourceSubscriptionInfo(source.id, resolvedUserInfo);
+      mergeSourceSubscriptionInfo(source.id, resolvedUserInfo);
 
       const parsedNodes = prepareSourceParsedNodes(fetched.nodes, {
         currentTag: source.tag,
@@ -297,13 +300,13 @@ export async function refreshNodeSnapshot(
       const parsed = parseSubscription(source.content);
       const resolvedUserInfo = resolveSubscriptionUserInfo(undefined, parsed.nodes);
       if (hasSubscriptionUserInfo(resolvedUserInfo)) {
-        mergeSubscriptionUserInfo(subscriptionInfo, resolvedUserInfo);
+        mergeSourceSubscriptionInfo(source.id, resolvedUserInfo);
       }
       if (parsed.nodes.length === 0) {
         recordFailedSource(source, "未解析到可用节点", { errorCategory: "parse" });
         continue;
       }
-      updateSourceSubscriptionInfo(source.id, resolvedUserInfo);
+      mergeSourceSubscriptionInfo(source.id, resolvedUserInfo);
 
       const parsedNodes = prepareSourceParsedNodes(parsed.nodes, {
         currentTag: source.tag,
@@ -354,6 +357,15 @@ export async function refreshNodeSnapshot(
     }
   }
 
+  const staleUserInfoSourceIds: string[] = [];
+  const failedIds = new Set(failedSources.map(source => source.id));
+  for (const source of savedSources) {
+    if (!failedIds.has(source.id) && !source.useProxyProviders) continue;
+    if (userInfoBySource.has(source.id) || !hasSubscriptionUserInfo(source.subscriptionUserInfo)) continue;
+    mergeSourceSubscriptionInfo(source.id, source.subscriptionUserInfo);
+    staleUserInfoSourceIds.push(source.id);
+  }
+
   if (!profileWebPageUrlState.conflicted && profileWebPageUrlState.value) {
     subscriptionInfo.profileWebPageUrl = profileWebPageUrlState.value;
   }
@@ -374,5 +386,6 @@ export async function refreshNodeSnapshot(
     detachedSourceCount,
     failedSourceCount,
     failedSources,
+    staleUserInfoSourceIds,
   };
 }

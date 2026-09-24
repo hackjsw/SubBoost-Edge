@@ -1,4 +1,5 @@
 import { load, dump } from "js-yaml";
+import { validateProxyReferences } from "@subboost/core/generator/validate-references";
 import { readResponseTextWithLimit } from "@subboost/server-core/subscription/read-response-text";
 import { MAX_STORED_YAML_BYTES, SUBCONVERTER_BACKEND } from "./constants";
 import type { WorkerEnv } from "./types";
@@ -11,9 +12,10 @@ const failedUntil = new Map<string, number>();
 // Older subconverters cannot represent VLESS/XHTTP/ECH. Send only names using a
 // supported placeholder protocol, then restore the original nodes after grouping.
 export function prepareClashTemplateSource(yaml: string) {
-  const config = load(yaml) as { proxies?: Array<Record<string, unknown>> } | null;
+  const config = load(yaml) as Record<string, unknown> | null;
   const proxies = Array.isArray(config?.proxies) ? config.proxies : [];
   return {
+    config: config ?? {},
     proxies,
     yaml: proxies.length ? dump({ proxies: proxies.map((node, index) => ({
       name: node.name, type: "trojan", server: "example.com", port: 443,
@@ -30,6 +32,7 @@ type ConvertClashSubscriptionOptions = {
   responseHeaders?: HeadersInit;
   requireExplicitBackend?: boolean;
   originalProxies?: Array<Record<string, unknown>>;
+  originalConfig?: Record<string, unknown>;
 };
 
 export async function convertClashSubscription({
@@ -40,6 +43,7 @@ export async function convertClashSubscription({
   responseHeaders,
   requireExplicitBackend = false,
   originalProxies,
+  originalConfig,
 }: ConvertClashSubscriptionOptions): Promise<Response> {
   const configuredBackend = env.SUBCONVERTER_BACKEND?.trim();
   if (requireExplicitBackend && !configuredBackend) {
@@ -98,6 +102,31 @@ export async function convertClashSubscription({
           throw new Error("Converter changed or dropped node names");
         }
         config.proxies = originalProxies;
+        if (originalConfig) {
+          const originalGroups = Array.isArray(originalConfig["proxy-groups"]) ? originalConfig["proxy-groups"] : [];
+          const originals = new Map(originalGroups.map(group => [group.name, group]));
+          const groups = new Map([...originalGroups, ...config["proxy-groups"]].map(group => [group.name, group]));
+          const pending: unknown[] = originalProxies.map(node => node["dialer-proxy"]);
+          if (Array.isArray(originalConfig.listeners)) pending.push(...originalConfig.listeners.map(listener => listener?.proxy));
+          const restored = new Set<string>();
+          while (pending.length) {
+            const name = pending.pop();
+            if (typeof name !== "string" || restored.has(name) || !originals.has(name)) continue;
+            restored.add(name);
+            const group = originals.get(name)!;
+            groups.set(name, group);
+            if (Array.isArray(group.proxies)) pending.push(...group.proxies);
+          }
+          // The external profile owns rules and its groups; original chain and
+          // listener dependencies take precedence when group names collide.
+          for (const [key, value] of Object.entries(originalConfig)) {
+            if (!["proxies", "proxy-groups", "proxy-providers", "rules", "rule-providers"].includes(key)) config[key] = value;
+          }
+          config["proxy-groups"] = [...groups.values()];
+          config["rule-providers"] = { ...(originalConfig["rule-providers"] as object), ...(config["rule-providers"] as object) };
+          config["proxy-providers"] = { ...(config["proxy-providers"] as object), ...(originalConfig["proxy-providers"] as object) };
+        }
+        validateProxyReferences(config);
         yaml = dump(config, { noRefs: true, lineWidth: -1 });
       }
       failedUntil.delete(backend);

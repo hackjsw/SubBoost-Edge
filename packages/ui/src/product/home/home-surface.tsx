@@ -32,6 +32,7 @@ type SaveRequirementDialogProps = {
 export type HomeSurfaceAdapter = {
   brandName?: string;
   brandDescription?: string;
+  supportsV2rayN?: boolean;
   productApi?: ProductApiAdapter;
   interactions?: ProductInteractionAdapter;
   subscription?: HomeSubscriptionAdapter;
@@ -201,6 +202,7 @@ function HomeSurfaceInner({ adapter }: Props) {
     <HomeLayout
       brandName={adapter?.brandName}
       brandDescription={adapter?.brandDescription}
+      supportsV2rayN={adapter?.supportsV2rayN}
       showAiColumn={showAiColumn}
       user={user}
       authChecked={authChecked}

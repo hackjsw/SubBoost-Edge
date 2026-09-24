@@ -410,6 +410,25 @@ describe("refreshNodeSnapshot", () => {
     });
   });
 
+  it("includes failed source usage in the aggregate and marks it stale", async () => {
+    const result = await refreshNodeSnapshot({
+      config: {
+        sources: [
+          { id: "stale", type: "url", content: "https://stale.example.com/sub", subscriptionUserInfo: { upload: 10, download: 20, total: 100 } },
+          { id: "fresh", type: "url", content: "https://fresh.example.com/sub" },
+        ],
+      },
+      urls: [],
+      storedNodes: [],
+      fetchUrlNodes: vi.fn()
+        .mockResolvedValueOnce({ ok: false, nodes: [], error: "network" })
+        .mockResolvedValueOnce({ ok: true, nodes: [node], headers: { "subscription-userinfo": "upload=1000; download=2000; total=10000" } }),
+    });
+
+    expect(result.subscriptionInfo).toMatchObject({ upload: 1010, download: 2020, total: 10100 });
+    expect(result.staleUserInfoSourceIds).toEqual(["stale"]);
+  });
+
   it("ignores malformed deleted-node descriptors while preserving identical stable metadata", async () => {
     const fetchUrlNodes = vi
       .fn()

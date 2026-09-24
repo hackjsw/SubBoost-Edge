@@ -34,6 +34,7 @@ import { DashboardStatsCards } from "@subboost/ui/dashboard/dashboard-stats-card
 import { formatDashboardDate, formatIntervalLabel } from "@subboost/ui/dashboard/dashboard-format";
 import { buildRefreshSubscriptionSuccessToast } from "@subboost/ui/dashboard/dashboard-refresh-toast";
 import { SubscriptionSettingsDialog } from "@subboost/ui/dashboard/subscription-settings-dialog";
+import { buildSubscriptionFormatUrl, V2RAYN_EXPORT_NOTICE, type SubscriptionFormat } from "@subboost/core/subscription/output-format";
 import type { RefreshSubscriptionResponse, Subscription } from "@subboost/ui/dashboard/dashboard-types";
 
 type UpdateSettingsPayload = {
@@ -43,6 +44,7 @@ type UpdateSettingsPayload = {
 };
 
 export type DashboardSurfaceAdapter = {
+  supportsV2rayN?: boolean;
   loginHref?: string;
   newSubscriptionHref?: string;
   templatesHref?: string | null;
@@ -205,11 +207,21 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const downloadSubscription = async (subscription: Subscription) => {
-    const filename = buildYamlDownloadFilename(subscription.name);
+  const downloadSubscription = async (subscription: Subscription, format: SubscriptionFormat = "clash") => {
+    const filename = buildYamlDownloadFilename(subscription.name).replace(/\.yaml$/, format === "v2rayn" ? ".txt" : ".yaml");
     try {
-      const response = await fetch(adapter.resolveDownloadUrl?.(subscription) ?? subscription.subscriptionUrl);
+      const url = adapter.resolveDownloadUrl?.(subscription) ?? subscription.subscriptionUrl;
+      const response = await fetch(buildSubscriptionFormatUrl(url, format));
       if (!response.ok) throw new Error(`Download failed with status ${response.status}`);
+      if (format === "v2rayn") {
+        const skippedNodes = Number(response.headers.get("X-SubBoost-Skipped-Nodes")) || 0;
+        const skippedProviders = Number(response.headers.get("X-SubBoost-Skipped-Providers")) || 0;
+        toast({
+          title: skippedNodes || skippedProviders ? `已跳过 ${skippedNodes} 个节点和 ${skippedProviders} 个远程节点提供者` : "已导出 v2rayN 节点订阅",
+          description: V2RAYN_EXPORT_NOTICE,
+          variant: skippedNodes || skippedProviders ? "warning" : "info",
+        });
+      }
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
       triggerBrowserDownload(objectUrl, filename);
@@ -396,6 +408,7 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
                 <SubscriptionRow
                   key={sub.id}
                   sub={sub}
+                  supportsV2rayN={adapter.supportsV2rayN}
                   copiedId={copiedId}
                   refreshingId={refreshingId}
                   editHref={editSubscriptionHref(sub)}
@@ -488,6 +501,7 @@ function LoginPrompt({ loginHref }: { loginHref: string }) {
 
 function SubscriptionRow({
   sub,
+  supportsV2rayN = false,
   copiedId,
   refreshingId,
   editHref,
@@ -498,15 +512,18 @@ function SubscriptionRow({
   onSettings,
 }: {
   sub: Subscription;
+  supportsV2rayN?: boolean;
   copiedId: string | null;
   refreshingId: string | null;
   editHref: string;
   onCopy: (subscriptionUrl: string, id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onDownload: (sub: Subscription) => Promise<void>;
+  onDownload: (sub: Subscription, format?: SubscriptionFormat) => Promise<void>;
   onRefresh: (id: string) => Promise<void>;
   onSettings: (sub: Subscription) => void;
 }) {
+  const [format, setFormat] = React.useState<SubscriptionFormat>("clash");
+  const copyId = format === "clash" ? sub.id : `${sub.id}:v2rayn`;
   return (
     <div className="flex flex-col gap-3 p-4 rounded-lg bg-white/5 border border-white/10 hover:border-white/20 transition-colors sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="flex min-w-0 flex-1 items-start gap-4 sm:items-center">
@@ -543,6 +560,18 @@ function SubscriptionRow({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
+        {supportsV2rayN && (
+          <select
+            aria-label={`${sub.name} 的导出格式`}
+            value={format}
+            onChange={(event) => setFormat(event.target.value === "v2rayn" ? "v2rayn" : "clash")}
+            className="h-8 rounded-md border border-white/15 bg-background px-2 text-xs"
+            title={format === "v2rayn" ? V2RAYN_EXPORT_NOTICE : "原有 Clash / Mihomo 订阅链接"}
+          >
+            <option value="clash">Clash / Mihomo</option>
+            <option value="v2rayn">v2rayN</option>
+          </select>
+        )}
         <Link href={editHref}>
           <Button variant="ghost" size="sm" className="gap-0 sm:gap-2" title="回到首页编辑该订阅（更新后链接不变）">
             <Settings className="h-4 w-4" />
@@ -573,11 +602,11 @@ function SubscriptionRow({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => void onCopy(sub.subscriptionUrl, sub.id)}
+          onClick={() => void onCopy(buildSubscriptionFormatUrl(sub.subscriptionUrl, format), copyId)}
           className="gap-0 sm:gap-2"
           title="复制订阅链接"
         >
-          {copiedId === sub.id ? (
+          {copiedId === copyId ? (
             <>
               <Check className="h-4 w-4 text-green-500" />
               <span className="hidden sm:inline text-green-500">已复制</span>
@@ -592,7 +621,7 @@ function SubscriptionRow({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => void onDownload(sub)}
+          onClick={() => void (format === "clash" ? onDownload(sub) : onDownload(sub, format))}
           className="gap-0 sm:gap-2"
           title="下载订阅配置"
         >

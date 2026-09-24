@@ -17,6 +17,7 @@ async function readApiResponse<T>(response: Response): Promise<T> {
 }
 
 const edgeDashboardAdapter: DashboardSurfaceAdapter = {
+  supportsV2rayN: true,
   loginHref: "/login?next=/dashboard",
   newSubscriptionHref: "/",
   templatesHref: null,

@@ -21,6 +21,7 @@ import {
   runScheduledRuleCatalogUpdate,
 } from "./rules-api";
 import type { ExecutionContextLike, ScheduledControllerLike, WorkerEnv } from "./types";
+export { SubscriptionStore } from "./subscription-store";
 
 function withSecurityHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -66,7 +67,7 @@ export async function handleRequest(
     (url.pathname === "/sub" || url.pathname === "/clash" || url.searchParams.has("id")) &&
     Boolean(url.searchParams.get("id")) &&
     !url.searchParams.has("source");
-  if (publicStoredSubscription) {
+  if (publicStoredSubscription && (request.method === "GET" || request.method === "HEAD")) {
     return url.pathname === "/clash" ? handleClash(request, env, ctx) : handleSub(request, env, ctx);
   }
 
@@ -101,7 +102,8 @@ export async function handleRequest(
       url.pathname === "/shorten" ||
       url.pathname === "/sub" ||
       url.pathname === "/test" ||
-      url.searchParams.has("source"))
+      url.searchParams.has("source") ||
+      url.searchParams.has("id"))
   ) {
     return unauthorizedResponse();
   }

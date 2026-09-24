@@ -186,7 +186,7 @@ describe("stored subscription KV races", () => {
       new Request(`https://edge.test/api/subscriptions/${token}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Stale PUT", yaml: "proxies: [stale]\n" }),
+        body: JSON.stringify({ name: "Stale PUT", yaml: "proxies: [{ name: stale, type: direct }]\n" }),
       }),
       { SUB_KV: kv }
     );

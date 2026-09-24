@@ -718,4 +718,17 @@ describe("useSubscriptionLink", () => {
       expect.objectContaining({ flow: "update" })
     );
   });
+
+  it("copies a v2rayN variant while keeping the original saved link intact", async () => {
+    let hook = useRenderedHook();
+    hook.setSubscriptionUrl("https://subboost.test/config/token-1?raw=1");
+    hook = useRenderedHook();
+    await hook.handleCopyUrl("v2rayn");
+    expect(globalThis.navigator.clipboard.writeText).toHaveBeenCalledWith("https://subboost.test/config/token-1?raw=1&format=v2rayn");
+    hook = useRenderedHook();
+    expect(hook.subscriptionUrl).toBe("https://subboost.test/config/token-1?raw=1");
+    expect(hook.copiedFormat).toBe("v2rayn");
+    await hook.handleCopyUrl();
+    expect(globalThis.navigator.clipboard.writeText).toHaveBeenLastCalledWith("https://subboost.test/config/token-1?raw=1");
+  });
 });

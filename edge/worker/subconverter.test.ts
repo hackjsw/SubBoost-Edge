@@ -101,4 +101,37 @@ describe("subconverter failover", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-subboost-converter")).toBe("backup.test");
   });
+
+  it("restores original chain dependencies and non-rule top-level settings", async () => {
+    const { convertClashSubscription, prepareClashTemplateSource } = await import("./subconverter");
+    const original = {
+      proxies: [
+        { name: "Relay", type: "trojan", server: "relay.example.com", port: 443, password: "relay" },
+        { name: "Target", type: "trojan", server: "target.example.com", port: 443, password: "target", "dialer-proxy": "Transit" },
+      ],
+      "proxy-groups": [{ name: "Transit", type: "select", proxies: ["Relay"] }],
+      dns: { enable: true, nameserver: ["1.1.1.1"] },
+      listeners: [{ name: "mixed", type: "mixed", port: 7890, proxy: "Transit" }],
+      "proxy-providers": { original: { type: "http", url: "https://original.example.com/sub" } },
+    };
+    const prepared = prepareClashTemplateSource(dump(original));
+    const converterOutput = dump({
+      proxies: original.proxies.map(node => ({ name: node.name, type: "trojan", server: "example.com", port: 443, password: "placeholder" })),
+      "proxy-groups": [{ name: "Proxy", type: "select", proxies: ["Relay", "Target", "DIRECT"] }],
+      rules: ["MATCH,Proxy"],
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(converterOutput)));
+    const response = await convertClashSubscription({
+      ...options,
+      originalProxies: prepared.proxies,
+      originalConfig: prepared.config,
+    });
+    expect(response.status).toBe(200);
+    const result = load(await response.text()) as Record<string, any>;
+    expect(result.dns).toEqual(original.dns);
+    expect(result.listeners).toEqual(original.listeners);
+    expect(result["proxy-groups"]).toContainEqual(original["proxy-groups"][0]);
+    expect(result["proxy-providers"]).toHaveProperty("original");
+    expect(result.proxies.find((item: any) => item.name === "Target")["dialer-proxy"]).toBe("Transit");
+  });
 });

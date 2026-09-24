@@ -180,6 +180,7 @@ describe("HomeSurface", () => {
     const adapter = {
       brandName: "EdgeSub",
       brandDescription: "Edge subscription workspace",
+      supportsV2rayN: true,
       productApi,
       interactions,
       subscription: { loginHref: "/login" },
@@ -219,6 +220,7 @@ describe("HomeSurface", () => {
     expect(mocks.captures.homeLayout).toMatchObject({
       brandName: "EdgeSub",
       brandDescription: "Edge subscription workspace",
+      supportsV2rayN: true,
       showAiColumn: true,
       editSubscriptionId: "sub-1",
       hasValidSources: true,
@@ -246,6 +248,7 @@ describe("HomeSurface", () => {
     await flushAsync();
 
     expect(html).toContain("notice:null:false");
+    expect(mocks.captures.homeLayout.supportsV2rayN).toBeUndefined();
     expect(mocks.captures.editingLoader.loginHref).toBe("/subscription-login");
     expect(mocks.setConfigDraftUserScope).toHaveBeenCalledWith(null);
     expect(mocks.consumeAuthConfigHandoff).not.toHaveBeenCalled();

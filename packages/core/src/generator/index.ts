@@ -21,6 +21,7 @@ import {
 import { DEFAULT_DNS_CONFIG } from "./dns";
 import { resolveProxyGroupModuleName } from "@subboost/core/proxy-group-name";
 import type { ParsedNode } from "@subboost/core/types/node";
+import { validateProxyReferences } from "./validate-references";
 import type {
   BuiltinRuleEdits,
   ClashConfig,
@@ -283,14 +284,14 @@ export function generateClashConfig(options: GenerateOptions): ClashConfig {
   };
 
   const nodeNameSet = new Set(uniqueNodes.map((n) => n.name));
-  const activeCustomProxyGroups = customProxyGroups.filter((g) => g && g.enabled !== false);
+  const activeCustomProxyGroups = customProxyGroups.filter((g) => g && g.enabled !== false && typeof g.name === "string" && g.name.trim());
   const customGroupNameSet = new Set<string>(
     activeCustomProxyGroups.filter((g) => g && typeof g.name === "string" && g.name.trim()).map((g) => g.name.trim())
   );
   const moduleGroupNameSet = new Set<string>(
     PROXY_GROUP_MODULES.map((mod) => resolveProxyGroupModuleName(mod, proxyGroupNameOverrides?.[mod.id]))
   );
-  const enabledDialerProxyGroups = dialerProxyGroups.filter((g) => g && g.enabled !== false);
+  const enabledDialerProxyGroups = dialerProxyGroups.filter((g) => g && g.enabled !== false && typeof g.name === "string" && g.name.trim());
   const sanitizedDialerProxyGroups = enabledDialerProxyGroups.length > 0
     ? sanitizeDialerProxyGroups(
         enabledDialerProxyGroups,
@@ -314,7 +315,9 @@ export function generateClashConfig(options: GenerateOptions): ClashConfig {
   const outputNodes = allNodes.map((node) => {
     const record = node as unknown as Record<string, unknown>;
     const dialerProxy = typeof record["dialer-proxy"] === "string" ? record["dialer-proxy"].trim() : "";
-    if (!dialerProxy || validDialerProxyNames.has(dialerProxy)) return node;
+    if (dialerProxy && validDialerProxyNames.has(dialerProxy)) {
+      return { ...record, "dialer-proxy": dialerProxy } as unknown as ParsedNode;
+    }
     const { ["dialer-proxy"]: _dialerProxy, ...withoutDialerProxy } = record;
     return withoutDialerProxy as unknown as ParsedNode;
   });
@@ -354,7 +357,7 @@ export function generateClashConfig(options: GenerateOptions): ClashConfig {
     ruleProviderBaseUrl: config.ruleProviderBaseUrl,
     testUrl: config.testUrl,
     testInterval: config.testInterval,
-    customProxyGroups,
+    customProxyGroups: activeCustomProxyGroups,
     customRuleSets,
     proxyGroupAdvanced,
     builtinRuleEdits,
@@ -520,6 +523,7 @@ export function generateClashConfig(options: GenerateOptions): ClashConfig {
     }),
   };
 
+  validateProxyReferences(clashConfig);
   return clashConfig as unknown as ClashConfig;
 }
 

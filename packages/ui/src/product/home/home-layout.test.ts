@@ -213,11 +213,14 @@ describe("HomeLayout", () => {
     expect(html).toContain("notice-slot");
     expect(html).toContain("save-requirement-slot");
     expect(html).toContain("subscription-dialog");
+    expect(html).toContain("下载配置");
+    expect(html).not.toContain("v2rayN");
     expect(mocks.buttons[0]).toMatchObject({ disabled: true });
     expect(mocks.buttons[1]).toMatchObject({ disabled: true });
     expect(mocks.buttons[2]).toMatchObject({ disabled: true });
     expect(mocks.subscriptionDialog).toMatchObject({
       open: false,
+      supportsV2rayN: false,
       subscriptionName: "Primary",
       autoUpdatePolicy: {
         defaultHours: 24,
@@ -252,6 +255,7 @@ describe("HomeLayout", () => {
       React.createElement(HomeLayout, {
         ...baseProps,
         user,
+        supportsV2rayN: true,
         authChecked: true,
         editingSubscription: {
           id: "sub-1",
@@ -283,14 +287,17 @@ describe("HomeLayout", () => {
     mocks.buttons[1].onClick();
     mocks.buttons[2].onClick();
     mocks.buttons[3].onClick();
+    mocks.buttons[4].onClick();
 
     expect(handleGenerate).toHaveBeenCalledWith("advanced");
     expect(onTemplateUploadOpen).toHaveBeenCalled();
     expect(mocks.interactions.templateUploadOpened).toHaveBeenCalledWith({ entry: "home" });
     expect(handleDownload).toHaveBeenCalledWith("advanced");
+    expect(handleDownload).toHaveBeenCalledWith("advanced", "v2rayn");
     expect(subscription.handleGenerateSubscription).toHaveBeenCalledWith("advanced");
     expect(mocks.subscriptionDialog).toMatchObject({
       open: true,
+      supportsV2rayN: true,
       subscriptionUrl: "https://example.com/sub",
       isEditingExistingSubscription: true,
       autoUpdatePolicy: {

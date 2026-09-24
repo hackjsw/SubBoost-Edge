@@ -47,6 +47,7 @@ EdgeSub 将 SubBoost 的配置生成器和订阅管理能力部署到一个 Clou
 ## Edge 版本功能
 
 - 保留 SubBoost 的 Clash/Mihomo 配置生成、节点导入、链式代理和智能分流能力。
+- 转换后可下载 Clash YAML 或 v2rayN Base64 节点订阅；原有订阅链接不变，新增格式通过 `?format=v2rayn` 使用。
 - 快捷模式在“完整版”下提供 ACL4SSR 模板入口，可选择 7 个官方远程配置。
 - 支持 `/sub`、`/clash`、`/shorten` 和 `/test` 等原 Worker 接口。
 - 使用 Worker Secret 密码登录，并通过签名的 HttpOnly Cookie 保护管理接口。
@@ -57,6 +58,23 @@ EdgeSub 将 SubBoost 的配置生成器和订阅管理能力部署到一个 Clou
 - Dashboard 显示规则来源、数量和同步时间，并支持管理员立即同步。
 - GitHub API 受限时自动降级到官方目录页面，再失败时使用内置规则目录。
 - 构建时生成对应源码归档，并通过 `/subboost-edge-source.tar.gz` 向网络用户提供。
+
+## 订阅输出格式
+
+生成配置后，首页可分别下载 Clash 和 v2rayN 文件；保存订阅后的弹窗提供两种链接，仪表盘也可选择复制或下载的格式。
+
+| 格式 | Edge 链接示例 | 内容 |
+| --- | --- | --- |
+| Clash / Mihomo | `/config/原token` | 原有 YAML 和已选择的 Clash 规则方案，行为不变 |
+| v2rayN | `/config/原token?format=v2rayn` | 最近保存/刷新成功的节点，UTF-8 Base64 编码 |
+
+已有查询参数时追加 `&format=v2rayn`。无需重建订阅、修改 token 或重新导入旧 Clash 链接；客户端 User-Agent 不会改变默认格式。Edge 原有 `/sub`、`/clash` 和 `/shorten` 的读取链接继续可用。双格式入口仅在 Cloudflare 部署中启用。
+
+v2rayN 导出支持 SS、VMess、VLESS、Trojan、Hysteria2、TUIC v5、AnyTLS 的常用参数，以及可表达的 TCP、WebSocket、HTTPUpgrade、gRPC 和 XHTTP 传输。它不携带 Clash 分流、DNS、代理组、监听端口或远程节点提供者；依赖 `dialer-proxy`、不支持的协议/插件/传输参数会跳过，下载时显示跳过数量。没有可导出节点时返回 HTTP 422，不会返回成功的空订阅。高级客户端参数不保证逐项等价，完整配置请继续使用 Clash / Mihomo。
+
+v2rayN 输出由浏览器或 Worker 内置代码生成，不调用外部 subconverter；Edge 缓存区分格式，编辑、刷新和删除会使两种格式同时失效。订阅写入由 Durable Object 按 token 串行处理，KV 继续作为兼容镜像。
+
+业务逻辑审查、修复与验证结果见 [审查报告](docs/business-logic-review-2026-09-20.md)。
 
 ## 目录结构
 

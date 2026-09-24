@@ -356,7 +356,8 @@ describe("SubscriptionDashboardSurface", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("URL", TestURL);
 
-    renderSurface(createAdapter(), { 0: [subscription], 1: false, 2: null, 3: null });
+    const { html } = renderSurface(createAdapter(), { 0: [subscription], 1: false, 2: null, 3: null });
+    expect(html).not.toContain("v2rayN");
     await mocks.captures.buttons.find((props: any) => props.title === "下载订阅配置").onClick();
     await flushPromises();
 
@@ -386,6 +387,27 @@ describe("SubscriptionDashboardSurface", () => {
       title: "下载失败",
       variant: "destructive",
     }));
+  });
+
+  it("copies and downloads the selected v2rayN variant without altering the saved subscription", async () => {
+    const dom = stubDocumentActions();
+    const blob = new Blob(["dHJvamFuOi8vc2VjcmV0QGV4YW1wbGUuY29tOjQ0Mw=="]);
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, headers: new Headers({ "X-SubBoost-Skipped-Nodes": "2" }), blob: async () => blob }));
+    class TestURL extends URL {}
+    TestURL.createObjectURL = vi.fn(() => "blob:v2rayn");
+    TestURL.revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", TestURL);
+    vi.stubGlobal("fetch", fetchMock);
+    const { html } = renderSurface(createAdapter({ supportsV2rayN: true }), { 0: [subscription], 1: false, 11: "v2rayn" });
+    expect(html).toContain("v2rayN");
+    await mocks.captures.buttons.find((props: any) => props.title === "复制订阅链接").onClick();
+    expect(mocks.clipboardWriteText).toHaveBeenCalledWith("https://example.com/sub?format=v2rayn");
+    await mocks.captures.buttons.find((props: any) => props.title === "下载订阅配置").onClick();
+    await flushPromises();
+    expect(fetchMock).toHaveBeenCalledWith("https://example.com/sub?format=v2rayn");
+    expect(dom.anchor.download).toBe("Primary.txt");
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "已跳过 2 个节点和 0 个远程节点提供者", variant: "warning" }));
+    expect(subscription.subscriptionUrl).toBe("https://example.com/sub");
   });
 
   it("uses the adapter download URL resolver before fetching subscription YAML", async () => {

@@ -162,13 +162,14 @@ describe("SubscriptionLinkDialog", () => {
       React.createElement(SubscriptionLinkDialog, {
         ...baseProps,
         subscriptionUrl: "https://sub.example.com/sub/token",
+        supportsV2rayN: true,
         copied: true,
         isEditingExistingSubscription: true,
       })
     );
 
     expect(html).toContain("订阅链接已更新");
-    expect(html).toContain("复制下方链接到 Clash 客户端导入使用");
+    expect(html).toContain("选择 Clash / Mihomo 或 v2rayN 订阅链接导入使用");
     expect(html).toContain("更新成功");
     expect(html).toContain("check-icon");
     expect(captures.inputs[0]).toMatchObject({
@@ -178,9 +179,28 @@ describe("SubscriptionLinkDialog", () => {
 
     captures.buttons[0].onClick();
     captures.buttons[1].onClick();
+    captures.buttons[2].onClick();
 
     expect(baseProps.handleCopyUrl).toHaveBeenCalled();
+    expect(baseProps.handleCopyUrl).toHaveBeenCalledWith("v2rayn");
+    expect(captures.inputs[1]).toMatchObject({ value: "https://sub.example.com/sub/token?format=v2rayn", readOnly: true });
     expect(baseProps.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the original link as the only output unless the deployment enables v2rayN", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SubscriptionLinkDialog, {
+        ...baseProps,
+        subscriptionUrl: "https://sub.example.com/sub/token",
+      })
+    );
+
+    expect(html).toContain("复制下方链接到 Clash 客户端导入使用");
+    expect(html).not.toContain("v2rayN");
+    expect(captures.inputs).toHaveLength(1);
+    expect(captures.inputs[0].value).toBe("https://sub.example.com/sub/token");
+    captures.buttons[0].onClick();
+    expect(baseProps.handleCopyUrl).toHaveBeenCalledWith();
   });
 
   it("disables link creation while name is empty or a request is running", () => {

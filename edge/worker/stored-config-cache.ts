@@ -29,8 +29,8 @@ type InflightLoad = {
 
 const inflight = new Map<string, InflightLoad>();
 
-export function storedConfigCacheKey(token: string, method: "GET" | "HEAD", raw: boolean): string {
-  return `${token}:${method}:${raw ? "raw" : "public"}`;
+export function storedConfigCacheKey(token: string, method: "GET" | "HEAD", raw: boolean, format: "clash" | "v2rayn" = "clash"): string {
+  return `${token}:${method}:${raw ? "raw" : "public"}${format === "v2rayn" ? ":v2rayn" : ""}`;
 }
 
 export function invalidateStoredConfigCache(token: string): void {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { collectDnsPolicyEntries, configToYaml } from "./yaml";
 import type { ClashConfig } from "@subboost/core/types/config";
+import { load } from "js-yaml";
 
 const REALITY_PUBLIC_KEY = "A".repeat(43);
 
@@ -70,7 +71,7 @@ describe("configToYaml", () => {
       rules: [],
     } as unknown as ClashConfig);
 
-    expect(yaml).toBe(["proxies:", "", "proxy-groups:", "", "rule-providers:", "", "rules:"].join("\n"));
+    expect(load(yaml)).toMatchObject({ proxies: [], "proxy-groups": [] });
   });
 
   it("collects DNS policy entries from clean string and array values only", () => {

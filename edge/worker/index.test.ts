@@ -4,6 +4,7 @@ import {
   KV_TTL,
   MAX_STORED_SUBSCRIPTION_BYTES,
   MAX_STORED_YAML_BYTES,
+  MAX_MANAGED_SUBSCRIPTION_NODES,
   MAX_REMOTE_REQUESTS_PER_REFRESH,
   MAX_TEST_NODES,
 } from "./constants";
@@ -17,6 +18,10 @@ import {
 import { resetStoredConfigCache } from "./stored-config-cache";
 import { STORED_CONFIG_CAPABILITY_TTL_SECONDS } from "./stored-config-capability";
 import type { ExecutionContextLike, KVNamespaceLike, WorkerEnv } from "./types";
+import { safeBase64Decode } from "./encoding";
+import { parseNodeLink } from "@subboost/core/parser";
+import { generateClashYaml } from "@subboost/core/generator";
+import { buildGenerateOptionsFromConfig } from "@subboost/core/subscription/config-utils";
 
 class MemoryKv implements KVNamespaceLike {
   readonly values = new Map<string, string>();
@@ -141,6 +146,107 @@ describe("EdgeSub worker", () => {
   beforeEach(() => {
     resetStoredConfigCache();
   });
+  it("adds v2rayN output without changing existing URLs, stored YAML or GET/HEAD caches", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const yaml = "proxies:\n  - {name: 香港, type: trojan, server: example.com, port: 443, password: secret}\nrules: [MATCH,DIRECT]\n";
+    const saved = await handleRequest(authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Both formats", yaml, subscriptionInfo: { total: 1024 }, conversionProfileId: "native" }),
+    }), env);
+    const { subscription } = await saved.json() as { subscription: { token: string; subscriptionUrl: string } };
+    const key = `edge-config:${subscription.token}`;
+    const stored = kv.values.get(key);
+    const converted = await handleRequest(new Request(`${subscription.subscriptionUrl}?format=v2rayn`), env);
+    expect(converted.status).toBe(200);
+    expect(converted.headers.get("content-type")).toContain("text/plain");
+    expect(converted.headers.get("subscription-userinfo")).toBe("total=1024");
+    const content = await converted.text();
+    expect(safeBase64Decode(content)).toContain("trojan://secret@example.com:443");
+    for (const query of ["", "?format=clash", "?raw=1", "?format=legacy-value"]) {
+      const legacy = await handleRequest(new Request(subscription.subscriptionUrl + query, { headers: { "User-Agent": "v2rayN/7.0" } }), env);
+      expect(legacy.headers.get("content-type")).toContain("text/yaml");
+      expect(await legacy.text()).toBe(yaml);
+    }
+    const head = await handleRequest(new Request(`${subscription.subscriptionUrl}?format=v2rayn`, { method: "HEAD" }), env);
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+    expect(head.headers.get("content-length")).toBe(String(content.length));
+    expect(await (await handleRequest(new Request(`${subscription.subscriptionUrl}?format=v2rayn`), env)).text()).toBe(content);
+    expect(kv.values.get(key)).toBe(stored);
+  });
+
+  it("exports v2rayN locally for saved remote profiles and invalidates it after updates/deletion", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const body = { name: "Remote profile", yaml: "proxies: [{name: old, type: trojan, server: example.com, port: 443, password: old}]", conversionProfileId: "acl4ssr-online-mini" };
+    const saved = await handleRequest(authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }), env);
+    const { subscription } = await saved.json() as { subscription: { token: string; subscriptionUrl: string } };
+    const link = `${subscription.subscriptionUrl}?format=v2rayn`;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected converter request"));
+    try {
+      expect(safeBase64Decode(await (await handleRequest(new Request(link), env)).text())).toContain("trojan://old@");
+      expect(fetchSpy).not.toHaveBeenCalled();
+      const updated = await handleRequest(authenticatedRequest(`https://edge.test/api/subscriptions/${subscription.token}`, cookie, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, yaml: body.yaml.replaceAll("old", "new") }),
+      }), env);
+      expect(updated.status).toBe(200);
+      expect((await updated.json() as { subscription: { subscriptionUrl: string } }).subscription.subscriptionUrl).toBe(subscription.subscriptionUrl);
+      expect(safeBase64Decode(await (await handleRequest(new Request(link), env)).text())).toContain("trojan://new@");
+      await handleRequest(authenticatedRequest(`https://edge.test/api/subscriptions/${subscription.token}`, cookie, { method: "DELETE" }), env);
+      expect((await handleRequest(new Request(link), env)).status).toBe(404);
+      expect((await handleRequest(new Request(subscription.subscriptionUrl), env)).status).toBe(404);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("returns 422 for unsupported v2rayN snapshots without breaking the original YAML", async () => {
+    const kv = new MemoryKv();
+    const token = "bbbbbbbbbbbbbbbbbbbb";
+    const yaml = "proxies: [{name: snell, type: snell, server: example.com, port: 443, psk: secret}]";
+    kv.values.set(`edge-config:${token}`, JSON.stringify({ version: 2, name: "Legacy", yaml, conversionProfileId: "native" }));
+    for (const method of ["GET", "HEAD"]) {
+      const response = await handleRequest(new Request(`https://edge.test/config/${token}?format=v2rayn`, { method }), createEnv(kv));
+      expect(response.status).toBe(422);
+      if (method === "HEAD") expect(await response.text()).toBe("");
+    }
+    expect(await (await handleRequest(new Request(`https://edge.test/config/${token}`), createEnv(kv))).text()).toBe(yaml);
+  });
+
+  it("preserves auto-update schedule and failure information when PATCH only renames a subscription", async () => {
+    const kv = new MemoryKv();
+    const token = "cccccccccccccccccccc";
+    const record = { version: 2, name: "Before", yaml: "proxies: []", conversionProfileId: "native", urls: ["https://example.com/sub"], autoUpdateInterval: 3600, nextUpdateAt: "2026-09-20T01:00:00.000Z", lastError: "upstream failed" };
+    kv.values.set(`edge-config:${token}`, JSON.stringify(record));
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const result = await handleRequest(authenticatedRequest(`https://edge.test/api/subscriptions/${token}`, cookie, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "After" }),
+    }), env);
+    expect(result.status).toBe(200);
+    expect(JSON.parse(kv.values.get(`edge-config:${token}`)!)).toMatchObject({ ...record, name: "After" });
+  });
+
+  it("requires authentication for POST conversion even with a public short-link query id", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected outbound request"));
+    try {
+      for (const path of ["/sub", "/clash", "/"]) {
+        const response = await handleRequest(new Request(`https://edge.test${path}?id=public-link`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source: "https://example.com/sub" }),
+        }), createEnv(new MemoryKv()));
+        expect(response.status).toBe(401);
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
   it("redirects anonymous pages to login and serves assets after authentication", async () => {
     const env = createEnv(undefined, {
       ASSETS: {
@@ -263,7 +369,7 @@ describe("EdgeSub worker", () => {
     const env = createEnv(kv);
     const cookie = await login(env);
     const previousLimit = 2 * 1024 * 1024;
-    const yaml = `payload: ${"a".repeat(previousLimit)}\n`;
+    const yaml = `proxies: []\npayload: ${"a".repeat(previousLimit)}\n`;
 
     expect(new TextEncoder().encode(yaml).byteLength).toBeGreaterThan(previousLimit);
     expect(new TextEncoder().encode(yaml).byteLength).toBeLessThanOrEqual(MAX_STORED_YAML_BYTES);
@@ -282,7 +388,7 @@ describe("EdgeSub worker", () => {
     expect(createResponse.status).toBe(200);
     expect(JSON.parse(kv.values.get(key) || "{}").yaml).toBe(yaml);
 
-    const updatedYaml = `payload: ${"b".repeat(previousLimit)}\n`;
+    const updatedYaml = `proxies: []\npayload: ${"b".repeat(previousLimit)}\n`;
     const updateResponse = await handleRequest(
       authenticatedRequest(`https://edge.test/api/subscriptions/${created.subscription.token}`, cookie, {
         method: "PUT",
@@ -294,6 +400,32 @@ describe("EdgeSub worker", () => {
 
     expect(updateResponse.status).toBe(200);
     expect(JSON.parse(kv.values.get(key) || "{}").yaml).toBe(updatedYaml);
+  });
+
+  it("rejects malformed YAML and cyclic proxy references before writing", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const malformed = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Malformed", yaml: "proxies: [" }),
+      }), env
+    );
+    expect(malformed.status).toBe(400);
+    const cyclic = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Cyclic",
+          yaml: "proxies: []\nproxy-groups:\n  - name: A\n    type: select\n    proxies: [B]\n  - name: B\n    type: select\n    proxies: [A]\n",
+        }),
+      }), env
+    );
+    expect(cyclic.status).toBe(400);
+    expect(Array.from(kv.values.keys()).filter(key => key.startsWith("edge-config:"))).toHaveLength(0);
   });
 
   it("rejects YAML above 8 MiB without writing create or update data to KV", async () => {
@@ -659,7 +791,7 @@ describe("EdgeSub worker", () => {
           name: "Managed",
           yaml: "proxies: []\nrules: []\n",
           autoUpdateInterval: 3600,
-          nodes: [],
+          nodes: [parseNodeLink(source)],
           urls: [],
           config: { template: "minimal", sources: [{ id: "source-1", type: "nodes", content: source }] },
         }),
@@ -698,7 +830,7 @@ describe("EdgeSub worker", () => {
           name: "Edited",
           yaml: "proxies: []\nrules: []\n",
           autoUpdateInterval: null,
-          nodes: [],
+          nodes: [parseNodeLink(source)],
           urls: [],
           config: { template: "minimal", sources: [{ id: "source-1", type: "nodes", content: source }] },
         }),
@@ -793,7 +925,7 @@ describe("EdgeSub worker", () => {
           yaml: "proxies: []\nrules: []\n",
           autoUpdateInterval: 3600,
           urls: [],
-          nodes: [],
+          nodes: [parseNodeLink(source)],
           config: {
             template: "minimal",
             sources: [{ id: "source-1", type: "nodes", content: source }],
@@ -855,7 +987,7 @@ describe("EdgeSub worker", () => {
             yaml: "proxies: []\nrules: []\n",
             autoUpdateInterval: 3600,
             urls: ["https://example.com/sub.yaml"],
-            nodes: [],
+            nodes: [{ name: "Remote", type: "trojan", server: "remote.example.com", port: 443, password: "secret" }],
             config: {
               template: "minimal",
               sources: [{ id: "source-1", type: "url", content: "https://example.com/sub.yaml" }],
@@ -912,7 +1044,7 @@ describe("EdgeSub worker", () => {
             yaml: "proxies: []\nrules: []\n",
             autoUpdateInterval: 3600,
             urls: sources.map((source) => source.content),
-            nodes: [],
+            nodes: [{ name: "Previous", type: "direct" }],
             config: { template: "minimal", sources },
           }),
         }),
@@ -988,7 +1120,7 @@ describe("EdgeSub worker", () => {
           yaml: "proxies: []\nrules: []\n",
           autoUpdateInterval: 3600,
           urls: [],
-          nodes: [],
+          nodes: [parseNodeLink(source)],
           config: { sources: [{ id: "source-1", type: "nodes", content: source }] },
         }),
       }),
@@ -1312,11 +1444,68 @@ describe("EdgeSub worker", () => {
     }
   });
 
+  it.each([
+    { yaml: "not-a-config" },
+    { yaml: "[]" },
+    { yaml: "dns: {enable: true}" },
+    { yaml: "proxies: [broken]" },
+    { yaml: "proxies: [{name: MissingPassword, type: trojan, server: example.com, port: 443}]" },
+    { yaml: "proxies: [{name: MissingServer, type: trojan, password: test, port: 443}]" },
+    { yaml: "proxy-providers: {remote: {type: http, url: 'https://example.com/sub'}}\nproxy-groups: [{name: Proxy, type: select, proxies: [Missing]}]" },
+    { yaml: "proxies: []", nodes: [null] },
+    { yaml: "proxies: []", nodes: [] },
+    { yaml: "proxies: []", config: [] },
+  ])("rejects malformed or unusable new snapshots: %j", async (payload) => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const response = await handleRequest(authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    }), env);
+    expect(response.status).toBe(400);
+    expect([...kv.values.keys()].filter(key => key.startsWith("edge-config:"))).toHaveLength(0);
+  });
+
+  it("regenerates a structured save with the refresh generator and preserves the token on edit", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const nodes = [{ name: "Current", type: "trojan" as const, server: "example.com", port: 443, password: "test" }];
+    const config = { template: "minimal", dnsYaml: "mixed-port: 7891\ndns: {enable: false}" };
+    const send = (url: string, method: string, yaml: string) => handleRequest(authenticatedRequest(url, cookie, {
+      method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ yaml, nodes, config }),
+    }), env);
+    const created = await send("https://edge.test/api/subscriptions", "POST", "proxies: [{name: Stale, type: direct}]");
+    expect(created.status).toBe(200);
+    const { subscription } = await created.json() as { subscription: { token: string; subscriptionUrl: string } };
+    const expected = generateClashYaml(buildGenerateOptionsFromConfig(config, { nodes }));
+    expect(JSON.parse(kv.values.get(`edge-config:${subscription.token}`)!).yaml).toBe(expected);
+    const updated = await send(`https://edge.test/api/subscriptions/${subscription.token}`, "PUT", "proxies: []");
+    expect(updated.status).toBe(200);
+    expect((await updated.json() as { subscription: { subscriptionUrl: string } }).subscription.subscriptionUrl).toBe(subscription.subscriptionUrl);
+    expect(await (await handleRequest(new Request(subscription.subscriptionUrl), env)).text()).toBe(expected);
+  });
+
+  it("accepts provider-only structured saves and rejects the same node quota as refresh", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const send = (body: unknown) => handleRequest(authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }), env);
+    const provider = await send({ yaml: "proxies: []", nodes: [], config: { sources: [{ id: "remote", type: "url", content: "https://example.com/sub", useProxyProviders: true }] } });
+    expect(provider.status, await provider.clone().text()).toBe(200);
+    const { subscription } = await provider.json() as { subscription: { token: string } };
+    expect(JSON.parse(kv.values.get(`edge-config:${subscription.token}`)!).yaml).toContain("url_remote");
+    const oversized = await send({ yaml: "proxies: []", nodes: Array.from({ length: MAX_MANAGED_SUBSCRIPTION_NODES + 1 }, () => ({ name: "Node", type: "direct" })) });
+    expect(oversized.status).toBe(413);
+  });
+
   it("keeps the last successful YAML when a scheduled refresh fails", async () => {
     const kv = new MemoryKv();
     const env = createEnv(kv);
     const cookie = await login(env);
-    const previousYaml = "proxies:\n  - name: Previous\n    type: direct\nrules: []\n";
+    const previousYaml = generateClashYaml(buildGenerateOptionsFromConfig({ template: "minimal" }, { nodes: [{ name: "Previous", type: "direct" } as never] }));
     const createResponse = await handleRequest(
       authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
         method: "POST",
