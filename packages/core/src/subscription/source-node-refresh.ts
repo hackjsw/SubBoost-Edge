@@ -40,6 +40,33 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function mergePreservedRealityCapabilities(
+  stored: Record<string, unknown>,
+  fresh: Record<string, unknown>
+): Record<string, unknown> {
+  const storedReality = stored["reality-opts"];
+  const freshReality = fresh["reality-opts"];
+  if (
+    !storedReality || typeof storedReality !== "object" || Array.isArray(storedReality) ||
+    !freshReality || typeof freshReality !== "object" || Array.isArray(freshReality)
+  ) {
+    return fresh;
+  }
+
+  const support = (storedReality as Record<string, unknown>)["support-x25519mlkem768"];
+  if (typeof support !== "boolean" || Object.prototype.hasOwnProperty.call(freshReality, "support-x25519mlkem768")) {
+    return fresh;
+  }
+
+  return {
+    ...fresh,
+    "reality-opts": {
+      ...(freshReality as Record<string, unknown>),
+      "support-x25519mlkem768": support,
+    },
+  };
+}
+
 export function prepareSourceParsedNodes(
   nodes: ParsedNode[],
   descriptor: Pick<SourceRefreshDescriptor, "currentTag" | "currentNameTemplate">
@@ -289,9 +316,10 @@ export function mergeParsedSourceNodes(
         ([key]) => key.startsWith("_") && key !== ORIGIN_NAME_KEY && key !== SOURCE_IDS_KEY
       )
     );
+    const freshWithPreservedCapabilities = mergePreservedRealityCapabilities(storedRecord, freshRecord);
 
     return ({
-      ...freshRecord,
+      ...freshWithPreservedCapabilities,
       ...preservedExtra,
       name: params.desiredName,
       [ORIGIN_NAME_KEY]: params.originName,

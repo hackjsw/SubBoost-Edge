@@ -272,6 +272,7 @@ function sanitizeRealityOpts(value: unknown): unknown {
   if (!isPlainObject(value)) return undefined;
 
   const out: Record<string, unknown> = { ...value };
+  delete out["_spider-x"];
   const publicKey = normalizeMihomoRealityPublicKey(out["public-key"]);
   if (!publicKey) return undefined;
   out["public-key"] = publicKey;
@@ -319,6 +320,7 @@ function sanitizeDownloadRealityOpts(
   if (!isPlainObject(value)) return { invalid: true };
 
   const out: Record<string, unknown> = { ...value };
+  delete out["_spider-x"];
   const rawPublicKey = normalizeString(out["public-key"]);
   if (!rawPublicKey) {
     if (out["public-key"] === "" && mainHasReality) {

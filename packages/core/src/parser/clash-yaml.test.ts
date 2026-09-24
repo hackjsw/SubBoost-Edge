@@ -332,6 +332,7 @@ proxies:
     reality-opts:
       public-key: "  ${REALITY_PUBLIC_KEY}  "
       short-id: "0x"
+      support-x25519mlkem768: true
       spider-x: /
   - name: VMess Preset ED
     type: vmess
@@ -358,6 +359,7 @@ proxies:
     expect(result.nodes.find((node) => node.name === "VLESS Trim")).toMatchObject({
       "reality-opts": {
         "public-key": REALITY_PUBLIC_KEY,
+        "support-x25519mlkem768": true,
         "spider-x": "/",
       },
     });

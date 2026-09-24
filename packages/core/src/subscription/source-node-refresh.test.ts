@@ -155,6 +155,46 @@ describe("source node refresh helpers", () => {
     expect(Array.from(result.renameMap.entries())).toEqual([["[Old]Alpha", "[New]Alpha"]]);
   });
 
+  it("preserves Reality ML-KEM support when a refreshed source omits the optional flag", () => {
+    const publicKey = "A".repeat(43);
+    const stored = {
+      name: "LAX",
+      type: "vless",
+      server: "lax.example.com",
+      port: 443,
+      uuid: "11111111-1111-4111-8111-111111111111",
+      tls: true,
+      "reality-opts": {
+        "public-key": publicKey,
+        "short-id": "85ca60a2130fe837",
+        "support-x25519mlkem768": true,
+      },
+      [ORIGIN_NAME_KEY]: "LAX",
+      [SOURCE_IDS_KEY]: ["source-a"],
+    } as ParsedNode;
+    const fresh = prepareSourceParsedNodes(
+      [
+        {
+          ...stored,
+          "reality-opts": {
+            "public-key": publicKey,
+            "short-id": "85ca60a2130fe837",
+          },
+        } as ParsedNode,
+      ],
+      {}
+    );
+
+    const result = mergeParsedSourceNodes([stored], fresh, [], { sourceId: "source-a" });
+
+    expect(result.nodes[0]["reality-opts"]).toMatchObject({
+      "public-key": publicKey,
+      "short-id": "85ca60a2130fe837",
+      "support-x25519mlkem768": true,
+    });
+    expect(result.nodes[0][SOURCE_IDS_KEY]).toEqual(["source-a"]);
+  });
+
   it("can refresh as a new source without treating old display names as manual renames", () => {
     const parsedNodes = prepareSourceParsedNodes([ssNode("Alpha")], {
       currentTag: "New",

@@ -545,6 +545,27 @@ describe("Mihomo proxy sanitizer", () => {
     });
   });
 
+  it("drops private Reality fields while preserving ML-KEM support", () => {
+    const node = normalizeMihomoVlessForGeneration({
+      name: "LAX",
+      type: "vless",
+      server: "lax.example.com",
+      port: 443,
+      uuid: "11111111-1111-4111-8111-111111111111",
+      "reality-opts": {
+        "public-key": REALITY_PUBLIC_KEY,
+        "support-x25519mlkem768": true,
+        "_spider-x": "/ba3d46cfbf4c9a7",
+      },
+    });
+
+    expect(node["reality-opts"]).toMatchObject({
+      "public-key": REALITY_PUBLIC_KEY,
+      "support-x25519mlkem768": true,
+    });
+    expect(node["reality-opts"]).not.toHaveProperty("_spider-x");
+  });
+
   it("covers sanitizer boundary aliases and optional protocol fallbacks", () => {
     const ecdsaSsh = sanitizeMihomoProxyNode({
       name: "SSH",

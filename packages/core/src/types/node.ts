@@ -167,6 +167,7 @@ export interface VLESSNode extends BaseNode {
   "reality-opts"?: {
     "public-key"?: string;
     "short-id"?: string;
+    "support-x25519mlkem768"?: boolean;
     [key: string]: unknown;
   };
 }
