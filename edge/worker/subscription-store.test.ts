@@ -6,7 +6,13 @@ import type { KVNamespaceLike } from "./types";
 
 type TestNamespace = { idFromName(name: string): unknown; get(id: unknown): { fetch: typeof fetch } };
 
-describe("subscription storage in the Workers runtime", () => {
+// workerd can crash at startup on some Windows setups depending on where the
+// binary lives (std::terminate before any user code runs). The in-memory
+// SubscriptionStore tests in index.test.ts still run everywhere; set
+// EDGESUB_RUN_WORKERD_TESTS=1 to force this real-runtime suite on Windows.
+const skipWorkerdRuntime = process.platform === "win32" && process.env.EDGESUB_RUN_WORKERD_TESTS !== "1";
+
+describe.skipIf(skipWorkerdRuntime)("subscription storage in the Workers runtime", () => {
   let runtime: miniflare.Miniflare;
   beforeAll(async () => {
     const bundled = await build({

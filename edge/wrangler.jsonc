@@ -20,6 +20,9 @@
       "id": "58db6bee88a44a19a9457a465d6eb693"
     }
   ],
+  // Must name this Worker itself: each scheduled refresh then runs in its
+  // own invocation with its own CPU budget instead of sharing the cron's.
+  "services": [{ "binding": "SELF", "service": "test" }],
   "durable_objects": {
     "bindings": [{ "name": "SUB_STORE", "class_name": "SubscriptionStore" }]
   },

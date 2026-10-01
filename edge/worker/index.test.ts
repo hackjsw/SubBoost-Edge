@@ -141,6 +141,40 @@ function attachSubscriptionStore(env: WorkerEnv): WorkerEnv {
   return env;
 }
 
+// In-memory stand-in for caches.default (Cache API).
+class MemoryCache {
+  readonly entries = new Map<string, { body: string; status: number; headers: [string, string][] }>();
+
+  async match(request: Request): Promise<Response | undefined> {
+    const entry = this.entries.get(request.url);
+    return entry ? new Response(entry.body, { status: entry.status, headers: entry.headers }) : undefined;
+  }
+
+  async put(request: Request, response: Response): Promise<void> {
+    this.entries.set(request.url, { body: await response.text(), status: response.status, headers: [...response.headers] });
+  }
+}
+
+function seedScheduledRecord(kv: MemoryKv, token: string, nextUpdateAt: string): void {
+  const source = "vless://00000000-0000-4000-8000-000000000000@example.com:443?encryption=none&security=tls#Edge";
+  const key = `edge-config:${token}`;
+  kv.values.set(key, JSON.stringify({
+    version: 2,
+    name: `Scheduled ${token.slice(-4)}`,
+    yaml: "proxies: []\nrules: []\n",
+    urls: [],
+    nodes: [parseNodeLink(source)],
+    config: { template: "minimal", sources: [{ id: "source-1", type: "nodes", content: source }] },
+    conversionProfileId: "native",
+    subscriptionInfo: {},
+    autoUpdateInterval: 6 * 3600,
+    createdAt: "2025-12-31T00:00:00.000Z",
+    updatedAt: "2025-12-31T00:00:00.000Z",
+    nextUpdateAt,
+  }));
+  kv.metadata.set(key, { version: 1, autoUpdate: true, nextUpdateAt });
+}
+
 const TEST_PASSWORD = "test-admin-password";
 const TEST_SESSION_SECRET = "test-session-secret-with-enough-entropy";
 
@@ -583,6 +617,102 @@ describe("EdgeSub worker", () => {
     await expect(response.json()).resolves.toEqual({ error: "订阅数据过大，无法保存到 KV" });
     expect(Array.from(kv.values.keys()).filter((key) => key.startsWith("edge-config:"))).toHaveLength(0);
     expect(kv.writes).toHaveLength(0);
+  });
+
+  it("caches converted configs, answers 304, and falls back when every converter fails", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv, { SUBCONVERTER_BACKEND: "https://converter.test/sub" });
+    const cookie = await login(env);
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Cached Profile",
+          yaml: "proxies: []\nrules:\n  - MATCH,DIRECT\n",
+          conversionProfileId: "acl4ssr-online-mini",
+        }),
+      }),
+      env
+    );
+    const { subscription } = (await createResponse.json()) as { subscription: { subscriptionUrl: string } };
+    const cache = new MemoryCache();
+    let converterUp = true;
+    const fetchImpl = vi.fn(async () =>
+      converterUp
+        ? new Response("proxies: [{name: Probe, type: trojan, server: example.com, port: 443, password: fake}]\nproxy-groups: [{name: Proxy, type: select, proxies: [Probe]}]\nrules:\n  - MATCH,Proxy\n")
+        : new Response("down", { status: 500 })
+    );
+    vi.stubGlobal("caches", { default: cache });
+    vi.stubGlobal("fetch", fetchImpl);
+    const fetchConfig = (init?: RequestInit) => {
+      resetStoredConfigCache(); // look past the 30s isolate cache
+      return handleRequest(new Request(subscription.subscriptionUrl, init), env);
+    };
+    try {
+      const first = await fetchConfig();
+      expect(first.headers.get("x-subboost-converter-cache")).toBe("miss");
+      expect(await first.text()).toContain("MATCH,Proxy");
+      const etag = first.headers.get("etag");
+      expect(etag).toMatch(/^"[a-f0-9]{32}-c\d+"$/);
+
+      const second = await fetchConfig();
+      expect(second.headers.get("x-subboost-converter-cache")).toBe("hit");
+      expect(second.headers.get("cache-control")).toBe("no-store");
+      expect(second.headers.get("etag")).toBe(etag);
+      expect(await second.text()).toContain("MATCH,Proxy");
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+      const notModified = await fetchConfig({ headers: { "If-None-Match": etag! } });
+      expect(notModified.status).toBe(304);
+      expect(await notModified.text()).toBe("");
+
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 31 * 60 * 1000);
+      converterUp = false;
+      const stale = await fetchConfig();
+      expect(stale.status).toBe(200);
+      expect(stale.headers.get("x-subboost-converter-cache")).toBe("stale");
+      expect(await stale.text()).toContain("MATCH,Proxy");
+
+      cache.entries.clear();
+      const native = await fetchConfig();
+      expect(native.status).toBe(200);
+      expect(native.headers.get("x-subboost-converter-fallback")).toBe("native");
+      expect(await native.text()).toContain("MATCH,DIRECT");
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("answers 304 for unchanged native configs and keeps full bodies for other clients", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Native", yaml: "proxies: []\nrules: []\n" }),
+      }),
+      env
+    );
+    const { subscription } = (await createResponse.json()) as { subscription: { subscriptionUrl: string } };
+
+    const first = await handleRequest(new Request(subscription.subscriptionUrl), env);
+    const etag = first.headers.get("etag")!;
+    expect(etag).toMatch(/^"[a-f0-9]{32}"$/);
+    const conditional = await handleRequest(
+      new Request(subscription.subscriptionUrl, { headers: { "If-None-Match": etag } }),
+      env
+    );
+    expect(conditional.status).toBe(304);
+    expect(conditional.headers.get("profile-update-interval")).toBeTruthy();
+    // The isolate cache must still hand a full body to a client without the ETag.
+    const plain = await handleRequest(new Request(subscription.subscriptionUrl), env);
+    expect(plain.status).toBe(200);
+    expect(await plain.text()).toContain("rules: []");
   });
 
   it("converts allowlisted stored profiles while raw reads remain local", async () => {
@@ -1260,6 +1390,112 @@ describe("EdgeSub worker", () => {
 
     const config = await handleRequest(new Request(`${created.subscription.subscriptionUrl}?raw=1`), env);
     expect(Number(config.headers.get("profile-update-interval"))).toBeGreaterThanOrEqual(6);
+  });
+
+  it("refreshes each due subscription in its own invocation through the SELF binding", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const due = "2026-01-01T00:00:00.000Z";
+    const tokens = ["1", "2"].map(n => n.repeat(20));
+    for (const token of tokens) seedScheduledRecord(kv, token, due);
+    seedScheduledRecord(kv, "3".repeat(20), "2099-01-01T00:00:00.000Z");
+    const calls: Request[] = [];
+    env.SELF = {
+      fetch: async (request) => {
+        calls.push(request.clone());
+        return handleRequest(request, env);
+      },
+    };
+
+    const cronTime = new Date();
+    const summary = await runScheduledSubscriptionUpdates(env, cronTime);
+
+    expect(summary).toMatchObject({ scanned: 3, due: 2, updated: 2, failed: 0, skipped: 1, deferred: 0 });
+    expect(calls.map(request => new URL(request.url).pathname)).toEqual(
+      tokens.map(token => `/api/internal/refresh/${token}`)
+    );
+    for (const token of tokens) {
+      const stored = JSON.parse(kv.values.get(`edge-config:${token}`)!) as { lastSuccessAt?: string };
+      // The child invocation keeps the cron's schedule time.
+      expect(stored.lastSuccessAt).toBe(cronTime.toISOString());
+    }
+  });
+
+  it("caps fan-out per run and serves the most overdue subscriptions first", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    // Token order is the reverse of due order, so list order alone would be wrong.
+    for (let index = 0; index < 35; index++) {
+      const token = (99 - index).toString(16).padStart(20, "0");
+      seedScheduledRecord(kv, token, new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString());
+    }
+    const dispatched: string[] = [];
+    env.SELF = {
+      fetch: async (request) => {
+        dispatched.push(new URL(request.url).pathname.split("/").at(-1)!);
+        return Response.json({ outcome: "updated" });
+      },
+    };
+
+    const summary = await runScheduledSubscriptionUpdates(env, new Date("2026-01-02T00:00:00.000Z"));
+
+    expect(summary).toMatchObject({ scanned: 35, due: 30, updated: 30, deferred: 5 });
+    expect(dispatched[0]).toBe((99).toString(16).padStart(20, "0"));
+    expect(dispatched).not.toContain((99 - 34).toString(16).padStart(20, "0"));
+  });
+
+  it("keeps going when one dispatched refresh dies", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    seedScheduledRecord(kv, "1".repeat(20), "2026-01-01T00:00:00.000Z");
+    seedScheduledRecord(kv, "2".repeat(20), "2026-01-01T00:01:00.000Z");
+    let call = 0;
+    env.SELF = {
+      fetch: async () => {
+        call += 1;
+        if (call === 1) throw new Error("Worker exceeded resource limits");
+        return Response.json({ outcome: "updated" });
+      },
+    };
+
+    await expect(runScheduledSubscriptionUpdates(env, new Date("2026-01-02T00:00:00.000Z"))).resolves.toMatchObject({
+      due: 2,
+      failed: 1,
+      updated: 1,
+    });
+  });
+
+  it("only accepts internal refreshes signed with the deployment secret", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const token = "4".repeat(20);
+    seedScheduledRecord(kv, token, "2026-01-01T00:00:00.000Z");
+    const url = `https://edge.test/api/internal/refresh/${token}`;
+    const body = JSON.stringify({ metadata: null });
+
+    expect((await handleRequest(new Request(url, { method: "POST", body }), env)).status).toBe(404);
+    expect((await handleRequest(new Request(url, {
+      method: "POST",
+      body,
+      headers: { "X-EdgeSub-Internal-Auth": "0".repeat(64) },
+    }), env)).status).toBe(404);
+    expect((await handleRequest(new Request(url), env)).status).toBe(405);
+    expect(JSON.parse(kv.values.get(`edge-config:${token}`)!).lastSuccessAt).toBeUndefined();
+  });
+
+  it("trusts not-due KV metadata without reading Durable Object records", async () => {
+    const kv = new MemoryKv();
+    const env = attachSubscriptionStore(createEnv(kv));
+    seedScheduledRecord(kv, "5".repeat(20), "2099-01-01T00:00:00.000Z");
+    const store = env.SUB_STORE!;
+    const reads: unknown[] = [];
+    env.SUB_STORE = { idFromName: store.idFromName, get: (id) => (reads.push(id), store.get(id)) };
+
+    await expect(runScheduledSubscriptionUpdates(env, new Date("2026-01-01T00:00:00.000Z"))).resolves.toMatchObject({
+      scanned: 1,
+      skipped: 1,
+    });
+    expect(reads).toHaveLength(0);
   });
 
   it("backfills schedule metadata once for records from earlier deployments", async () => {

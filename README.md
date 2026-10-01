@@ -32,6 +32,19 @@ EdgeSub 是基于 [SubBoost](https://github.com/SubBoost/subboost) **v2.6.0** �
 
 本仓库在 **2026-07-21** 基于上游 v2.6.0 增加了 Cloudflare Workers 部署、登录保护、KV 订阅管理、定时更新和远端规则目录同步等功能。原项目及既有代码的版权归原作者和贡献者所有，本仓库的修改内容继续遵循 `AGPL-3.0-only`。
 
+### EdgeSub 2.6.0-edge.6（2026-10-01）
+
+本版本解决 Cloudflare 免费版每次调用 10 ms CPU 上限带来的问题：此前订阅较多或多个订阅同时到期时，定时更新可能整体超限失败并反复重试；同时让 ACL4SSR 模板订阅在转换服务故障时仍能正常更新。
+
+- 定时任务改为每个到期订阅在独立调用中刷新（Worker 通过 `SELF` 服务绑定调用自身），每个订阅各自拥有 CPU 和子请求额度，一个订阅失败或超限不会拖累其他订阅。每次最多处理 30 个，其余按到期先后留到下一次，最久未更新的优先。
+- 定时任务扫描时直接信任 KV metadata 中“未到期”的记录，不再逐条读取和解析订阅内容，扫描本身几乎不消耗 CPU。
+- ACL4SSR 模板订阅的转换结果按“订阅 + 内容版本”缓存在 Cloudflare 边缘缓存中：30 分钟内的结果直接返回，不再每次请求转换服务、也不再每次解析和合并大体积 YAML，响应更快、CPU 消耗更低。缓存仅在自定义域名上生效。
+- 所有转换服务都失败时，不再返回 502：优先返回同一版本最近一次成功的转换结果（保留 7 天），没有时返回该订阅的原生配置（节点相同，使用内置规则），并通过响应头标明。
+- `/config` 订阅响应增加 ETag；客户端带 `If-None-Match` 请求且内容未变时返回 304，不再重复传输整份配置。
+- 修复 `package-lock.json` 与 `package.json` 不同步导致 `npm ci` 失败的问题，依赖重新锁定在 `wrangler 4.112.0` / `miniflare 4`；修复节点列表测试缺少连通性结果参数的问题。基于 workerd 的 Durable Object 运行时测试在 Windows 上默认跳过（部分 Windows 环境下 workerd 启动即崩溃），可设置 `EDGESUB_RUN_WORKERD_TESTS=1` 强制运行。
+
+升级说明：自行部署时，需要把 `edge/wrangler.jsonc` 中 `services` 的 `SELF` 绑定改成自己的 Worker 名称（与 `name` 一致），然后重新部署；无需迁移数据。未配置 `SELF` 绑定时，定时任务仍按原方式在同一次调用中依次刷新。
+
 ### EdgeSub 2.6.0-edge.5（2026-10-01）
 
 本版本修复了编辑订阅时可能覆盖或丢失数据的问题，并让自动更新的时间和失败状态在界面上可见。
@@ -137,13 +150,13 @@ npm ci
 npx wrangler kv namespace create SUB_KV --config edge/wrangler.jsonc
 ```
 
-将命令返回的 Namespace ID 写入 [`edge/wrangler.jsonc`](./edge/wrangler.jsonc)，并将其中的 Worker `name` 改成自己的名称。不要直接复用仓库里的生产 KV 数据或账号配置。
+将命令返回的 Namespace ID 写入 [`edge/wrangler.jsonc`](./edge/wrangler.jsonc)，并将其中的 Worker `name` 改成自己的名称；`services` 里 `SELF` 绑定的 `service` 必须同步改成同一个名称（Worker 绑定自身，用于让每个订阅的定时刷新在独立调用中执行）。不要直接复用仓库里的生产 KV 数据或账号配置。
 
 当前配置包含两个 Cron Trigger：
 
 | Cron | 作用 |
 | --- | --- |
-| `0 */6 * * *` | 每 6 小时检查一次需要更新的订阅，自动更新间隔小于 6 小时的订阅实际按 6 小时执行 |
+| `0 */6 * * *` | 每 6 小时检查一次需要更新的订阅，自动更新间隔小于 6 小时的订阅实际按 6 小时执行。每个到期订阅通过 `SELF` 绑定在独立调用中刷新，每次最多 30 个，其余按到期先后留到下一次 |
 | `17 3 * * *` | 每天同步一次远端规则目录，Cloudflare Cron 使用 UTC |
 
 ### 3. 配置 Secret
@@ -199,9 +212,9 @@ Edge 部署在首页快捷模式的“完整版”下方提供 **ACL4SSR 模板*
 - 无测速版
 - 无拦截版
 
-所选方案会随订阅记录保存到 KV。访问订阅链接、缓存未命中时，Worker 将对应的 ACL4SSR `master` 配置地址交给 subconverter；Cron 更新订阅源，不会单独下载或复制模板文件到 KV。模板新鲜度还受转换服务自身缓存影响，不保证 5 分钟内与上游一致。
+所选方案会随订阅记录保存到 KV。访问订阅链接时，Worker 将对应的 ACL4SSR `master` 配置地址交给 subconverter；Cron 更新订阅源，不会单独下载或复制模板文件到 KV。转换结果按“订阅 + 内容版本”缓存在 Cloudflare 边缘缓存中：30 分钟内直接返回缓存，超过 30 分钟重新转换，因此模板更新一般在 30 分钟左右生效，另受转换服务自身缓存影响。边缘缓存仅在自定义域名上生效，`*.workers.dev` 上每次都会重新转换。
 
-Worker 支持一个主后端和两个备用后端，通过 `edge/wrangler.jsonc` 的 `SUBCONVERTER_BACKEND` 和 `SUBCONVERTER_FALLBACK_BACKENDS`（逗号分隔）配置。当前使用 `api.dler.io`、`pub-api-1.bianyuan.xyz` 和 `api.wcc.best`，来自 [ACL4SSR 在线工具](https://acl4ssr-sub.github.io/) 的公开后端列表。超时、非 200 响应、无效 YAML 或空节点配置会自动切换，每个后端最多等待 8 秒。同一 Worker 实例会暂时跳过失败后端 60 秒；全部失败时返回明确错误，不会静默切换模板。
+Worker 支持一个主后端和两个备用后端，通过 `edge/wrangler.jsonc` 的 `SUBCONVERTER_BACKEND` 和 `SUBCONVERTER_FALLBACK_BACKENDS`（逗号分隔）配置。当前使用 `api.dler.io`、`pub-api-1.bianyuan.xyz` 和 `api.wcc.best`，来自 [ACL4SSR 在线工具](https://acl4ssr-sub.github.io/) 的公开后端列表。超时、非 200 响应、无效 YAML 或空节点配置会自动切换，每个后端最多等待 8 秒。同一 Worker 实例会暂时跳过失败后端 60 秒。全部失败时，优先返回该订阅同一版本最近一次成功的转换结果（保留 7 天，响应头 `X-SubBoost-Converter-Cache: stale`）；没有可用结果时返回该订阅的原生配置（节点相同，使用 SubBoost 内置规则，响应头 `X-SubBoost-Converter-Fallback: native`），避免客户端更新失败。
 
 保存后的 ACL 订阅仅将节点名称和占位节点通过 5 分钟临时链接交给转换服务生成代理组，真实节点地址、凭据及 VLESS/XHTTP/ECH 字段由 Worker 填回，避免旧转换器丢弃节点。旧 `/clash` 接口仍按原有方式转交其输入源。公共后端仍可能限流或停服，可替换为自己的服务地址。
 

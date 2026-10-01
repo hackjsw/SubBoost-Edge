@@ -11,7 +11,7 @@ EdgeSub combines the SubBoost converter UI with Cloudflare subscription Worker c
 - `/api/subscriptions` and `/config/:token` persist generated YAML, sources and refresh settings in the per-token `SUB_STORE` SQLite Durable Object. `SUB_KV` remains the discovery index and compatibility mirror.
 - `/dashboard` lists the authenticated administrator's subscriptions and supports editing, refreshing, downloading, and deleting them.
 - `/login` uses a Worker Secret password and a signed HttpOnly session cookie; management and conversion endpoints require authentication.
-- A Cloudflare Cron trigger runs every 6 hours (`0 */6 * * *`, UTC) and refreshes subscriptions whose configured interval has elapsed.
+- A Cloudflare Cron trigger runs every 6 hours (`0 */6 * * *`, UTC) and refreshes subscriptions whose configured interval has elapsed. Each due subscription is refreshed in its own invocation through the `SELF` service binding (at most 30 per run, most overdue first); the binding's `service` must match the Worker `name`.
 - Failed refreshes keep serving the last successful YAML and retry after one hour.
 - Legacy rolling seven-day YAML records are migrated to persistent records the next time their config URL is accessed.
 - `/subboost-edge-source.tar.gz` serves the complete corresponding source generated from the current worktree.

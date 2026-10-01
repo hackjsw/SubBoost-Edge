@@ -17,6 +17,10 @@ export interface AssetFetcherLike {
   fetch(request: Request): Promise<Response>;
 }
 
+export interface ServiceBindingLike {
+  fetch(request: Request): Promise<Response>;
+}
+
 export interface DurableObjectStubLike {
   fetch(request: Request): Promise<Response>;
 }
@@ -29,6 +33,8 @@ export interface DurableObjectNamespaceLike {
 export interface WorkerEnv {
   SUB_STORE?: DurableObjectNamespaceLike;
   SUB_KV?: KVNamespaceLike;
+  // Service binding to this Worker: each scheduled refresh gets its own invocation.
+  SELF?: ServiceBindingLike;
   ASSETS?: AssetFetcherLike;
   EDGE_ADMIN_PASSWORD?: string;
   EDGE_SESSION_SECRET?: string;

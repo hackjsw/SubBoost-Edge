@@ -37,14 +37,23 @@ import {
   MAX_STORED_SUBSCRIPTION_BYTES,
   MAX_STORED_YAML_BYTES,
   MIN_AUTO_UPDATE_INTERVAL_SECONDS,
+  INTERNAL_AUTH_HEADER,
+  INTERNAL_REFRESH_PATH,
+  MAX_CRON_DISPATCHES,
   SUBSCRIPTION_CRON_INTERVAL_SECONDS,
   SUBSCRIPTION_SCHEDULE_GRACE_MS,
 } from "./constants";
 import { byteLength } from "./encoding";
-import { isAuthenticated } from "./auth";
+import { isAuthenticated, sessionSecret } from "./auth";
 import { json, methodNotAllowed, readJsonBody } from "./http";
 import { fetchRemoteText } from "./remote-fetch";
 import { createStoredConfigCapability, type StoredConfigCapability } from "./stored-config-capability";
+import {
+  convertedConfigCacheKey,
+  readConvertedConfig,
+  serveConvertedConfig,
+  storeConvertedConfig,
+} from "./converted-config-cache";
 import { readStoredValue, writeStoredValue } from "./subscription-store";
 import {
   invalidateStoredConfigCache,
@@ -52,7 +61,7 @@ import {
   storedConfigCacheKey,
 } from "./stored-config-cache";
 import { convertClashSubscription, prepareClashTemplateSource } from "./subconverter";
-import type { ExecutionContextLike, WorkerEnv } from "./types";
+import type { ExecutionContextLike, ServiceBindingLike, WorkerEnv } from "./types";
 
 const CONFIG_KEY_PREFIX = "edge-config:";
 const TOKEN_PATTERN = /^[a-f0-9]{20}$/;
@@ -115,6 +124,8 @@ type SubscriptionScheduleMetadata = {
 export type ScheduledUpdateSummary = {
   scanned: number;
   due: number;
+  // Due records left for the next run because of the per-run dispatch cap.
+  deferred: number;
   updated: number;
   failed: number;
   skipped: number;
@@ -669,7 +680,7 @@ export function handleHealth(request: Request, env: WorkerEnv): Response {
   return json({
     status: "ok",
     service: "edgesub",
-    version: "2.6.0-edge.5",
+    version: "2.6.0-edge.6",
     kv: Boolean(env.SUB_KV),
     auth: Boolean(env.EDGE_ADMIN_PASSWORD?.trim()),
   });
@@ -1051,11 +1062,28 @@ export async function handleStoredConfig(
     catch { return storedConfigError("Stored subscription is unavailable", 503, method); }
     if (snapshot.value === null) return storedConfigError("Subscription not found", 404, method);
   }
-  return loadStoredConfigResponse(
+  const response = await loadStoredConfigResponse(
     storedConfigCacheKey(token, method, raw, format) + (snapshot?.revision ? `:${snapshot.revision}` : ""),
     { method },
     () => loadStoredConfigFromKv(request, env, token, method, raw, format, ctx, snapshot?.value ?? undefined)
   );
+  return notModifiedIfMatching(request, response);
+}
+
+// Clients that send If-None-Match get a bodyless 304 when nothing changed.
+// Kept outside the isolate cache so one client's 304 is never reused for another.
+function notModifiedIfMatching(request: Request, response: Response): Response {
+  const etag = response.headers.get("ETag");
+  const ifNoneMatch = request.headers.get("If-None-Match");
+  if (response.status !== 200 || !etag || !ifNoneMatch) return response;
+  if (!ifNoneMatch.split(",").some(candidate => candidate.trim() === etag || candidate.trim() === "*")) return response;
+  void response.body?.cancel();
+  const headers = new Headers({ ETag: etag, "Cache-Control": "no-store" });
+  for (const name of ["profile-update-interval", "subscription-userinfo", "Content-Disposition"]) {
+    const value = response.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return new Response(null, { status: 304, headers });
 }
 
 async function storedRevision(stored: string): Promise<string> {
@@ -1123,7 +1151,11 @@ async function loadStoredConfigFromKv(
     headers.set("X-SubBoost-Stale-Userinfo", String(record.staleUserInfoSourceIds?.length ?? 0));
     if (record.nextUpdateAt) headers.set("X-SubBoost-Next-Update", record.nextUpdateAt);
 
-    if (format === "v2rayn") return buildV2rayNResponse(record.yaml, headers, method);
+    const revision = await storedRevision(stored);
+    if (format === "v2rayn") {
+      headers.set("ETag", `"${revision}-v2rayn"`);
+      return buildV2rayNResponse(record.yaml, headers, method);
+    }
 
     if (!raw) {
       const profile = getClashConversionProfile(record.conversionProfileId);
@@ -1133,29 +1165,54 @@ async function loadStoredConfigFromKv(
         if (!env.SUBCONVERTER_BACKEND?.trim()) {
           return storedConfigError("Subconverter backend is not configured", 503, method);
         }
+        const cacheKey = convertedConfigCacheKey(request.url, token, revision);
+        const cached = await readConvertedConfig(cacheKey);
+        // A fresh hit skips the converter round trip and the YAML merge entirely.
+        if (cached?.fresh) return serveConvertedConfig(cached.response, method, "hit");
+
         const templateSource = prepareClashTemplateSource(record.yaml);
         let sourceUrl: string;
         try {
-          sourceUrl = await createStoredConfigCapability(env, request.url, {
-            token,
-            revision: await storedRevision(stored),
-          });
+          sourceUrl = await createStoredConfigCapability(env, request.url, { token, revision });
         } catch {
           return storedConfigError("Session secret is not configured", 503, method);
         }
-        return convertClashSubscription({
+        const converted = await convertClashSubscription({
           env,
           sourceUrl,
           configUrl: profile.configUrl,
-          method,
+          method: "GET",
           requireExplicitBackend: true,
           responseHeaders: headers,
           originalProxies: templateSource.proxies,
           originalConfig: templateSource.config,
         });
+        if (converted.status === 200) {
+          const body = await converted.text();
+          const convertedAt = Date.now();
+          // The template can change while the revision does not, so the ETag
+          // follows the conversion, not just the stored record.
+          converted.headers.set("ETag", `"${revision}-c${convertedAt}"`);
+          const store = storeConvertedConfig(cacheKey, body, converted.headers, convertedAt);
+          if (ctx) ctx.waitUntil(store);
+          else await store;
+          converted.headers.set("X-SubBoost-Converter-Cache", "miss");
+          return new Response(method === "HEAD" ? null : body, { status: 200, headers: converted.headers });
+        }
+        if (converted.status !== 502) return converted;
+
+        // Every converter failed: an older conversion of this revision beats an
+        // error, and the native config (same nodes, built-in rules) beats both.
+        await converted.body?.cancel();
+        if (cached) return serveConvertedConfig(cached.response, method, "stale");
+        headers.set("X-SubBoost-Converter-Fallback", "native");
+        headers.set("ETag", `"${revision}-native"`);
+        headers.set("Content-Length", String(byteLength(record.yaml)));
+        return new Response(method === "HEAD" ? null : record.yaml, { headers });
       }
     }
 
+    headers.set("ETag", `"${revision}${raw ? "-raw" : ""}"`);
     headers.set("Content-Length", String(byteLength(record.yaml)));
     return new Response(method === "HEAD" ? null : record.yaml, { headers });
   } catch {
@@ -1163,12 +1220,128 @@ async function loadStoredConfigFromKv(
   }
 }
 
+// "raced": the record was due but changed while refreshing, so the result was dropped.
+type ScheduledOutcome = "updated" | "failed" | "skipped" | "raced";
+
+// Handles one listed record. Runs either inline in the cron invocation or in
+// its own invocation via the SELF service binding (one CPU budget each).
+async function processScheduledSubscription(
+  env: WorkerEnv,
+  token: string,
+  keyMetadata: unknown,
+  now: Date
+): Promise<ScheduledOutcome> {
+  const keyName = `${CONFIG_KEY_PREFIX}${token}`;
+  try {
+    const stored = (await readStoredValue(env, token)).value;
+    if (!stored) return "skipped";
+    const parsed = parseStoredSubscription(stored);
+    if (!parsed) return "skipped";
+
+    let expectedStored = stored;
+    if (parsed.migrated) {
+      const migrated = await putStoredSubscriptionIfUnchanged(env, token, keyName, expectedStored, parsed.record);
+      if (!migrated) return "skipped";
+      expectedStored = JSON.stringify(parsed.record);
+    }
+
+    if (!isUpdateDue(parsed.record, now)) {
+      // Only backfill missing or stale schedule metadata; rewriting an
+      // unchanged record would cost a KV write per subscription per run.
+      if (!parsed.migrated && !scheduleMetadataMatches(keyMetadata, parsed.record)) {
+        await putStoredSubscriptionIfUnchanged(env, token, keyName, expectedStored, parsed.record);
+      }
+      return "skipped";
+    }
+
+    const refreshed = await refreshStoredSubscription(parsed.record, now);
+    const persisted = await putStoredSubscriptionIfUnchanged(env, token, keyName, expectedStored, refreshed.record);
+    if (!persisted) return "raced";
+    return refreshed.ok ? "updated" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+function internalRefreshAuth(env: WorkerEnv, token: string): Promise<string> {
+  return signInternal(env, `edgesub:internal-refresh:${token}`);
+}
+
+async function signInternal(env: WorkerEnv, message: string): Promise<string> {
+  const secret = sessionSecret(env);
+  if (!secret) throw new Error("Session secret is not configured");
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function timingSafeEqualText(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let index = 0; index < a.length; index++) diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  return diff === 0;
+}
+
+async function dispatchScheduledSubscription(
+  env: WorkerEnv,
+  self: ServiceBindingLike,
+  token: string,
+  keyMetadata: unknown,
+  now: Date
+): Promise<ScheduledOutcome> {
+  try {
+    const response = await self.fetch(new Request(`https://edgesub.internal${INTERNAL_REFRESH_PATH}${token}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [INTERNAL_AUTH_HEADER]: await internalRefreshAuth(env, token),
+      },
+      body: JSON.stringify({ metadata: keyMetadata ?? null, now: now.toISOString() }),
+    }));
+    const data = (await response.json().catch(() => ({}))) as { outcome?: unknown };
+    if (!response.ok) return "failed";
+    return data.outcome === "updated" || data.outcome === "skipped" || data.outcome === "raced" ? data.outcome : "failed";
+  } catch {
+    // Includes a child invocation killed for exceeding its CPU limit.
+    return "failed";
+  }
+}
+
+export async function handleInternalSubscriptionRefresh(request: Request, env: WorkerEnv): Promise<Response> {
+  if (request.method !== "POST") return methodNotAllowed(["POST"]);
+  const token = new URL(request.url).pathname.slice(INTERNAL_REFRESH_PATH.length);
+  if (!env.SUB_KV || !TOKEN_PATTERN.test(token)) return json({ error: "Not found" }, 404);
+  let expected: string;
+  try {
+    expected = await internalRefreshAuth(env, token);
+  } catch {
+    return json({ error: "Not found" }, 404);
+  }
+  if (!timingSafeEqualText(request.headers.get(INTERNAL_AUTH_HEADER) || "", expected)) {
+    return json({ error: "Not found" }, 404);
+  }
+  const body = (await request.json().catch(() => ({}))) as { metadata?: unknown; now?: unknown };
+  // Keep the cron's schedule time, but never trust a time far from reality.
+  const requested = typeof body.now === "string" ? Date.parse(body.now) : Number.NaN;
+  const now = Number.isFinite(requested) && Math.abs(requested - Date.now()) < 15 * 60 * 1000
+    ? new Date(requested)
+    : new Date();
+  return json({ outcome: await processScheduledSubscription(env, token, body.metadata, now) });
+}
+
 export async function runScheduledSubscriptionUpdates(
   env: WorkerEnv,
   now = new Date()
 ): Promise<ScheduledUpdateSummary> {
   if (!env.SUB_KV) throw new Error("KV is not configured");
-  const summary: ScheduledUpdateSummary = { scanned: 0, due: 0, updated: 0, failed: 0, skipped: 0 };
+  const summary: ScheduledUpdateSummary = { scanned: 0, due: 0, updated: 0, failed: 0, skipped: 0, deferred: 0 };
+  const candidates: Array<{ token: string; metadata: unknown; dueAt: number }> = [];
   let cursor: string | undefined;
 
   do {
@@ -1180,84 +1353,43 @@ export async function runScheduledSubscriptionUpdates(
 
     for (const key of page.keys) {
       summary.scanned += 1;
-      const token = key.name.slice(CONFIG_KEY_PREFIX.length);
-      const dueFromMetadata = metadataUpdateDue(key.metadata, now);
-      if (dueFromMetadata === false && !env.SUB_STORE) {
+      // KV metadata is mirrored on every write, so a valid "not due" entry is
+      // trusted without reading (and parsing) the record.
+      if (metadataUpdateDue(key.metadata, now) === false) {
         summary.skipped += 1;
         continue;
       }
-
-      try {
-        const stored = (await readStoredValue(env, token)).value;
-        if (!stored) {
-          summary.skipped += 1;
-          continue;
-        }
-        const parsed = parseStoredSubscription(stored);
-        if (!parsed) {
-          summary.skipped += 1;
-          continue;
-        }
-
-        let expectedStored = stored;
-        if (parsed.migrated) {
-          const migrated = await putStoredSubscriptionIfUnchanged(
-            env,
-            token,
-            key.name,
-            expectedStored,
-            parsed.record
-          );
-          if (!migrated) {
-            summary.skipped += 1;
-            continue;
-          }
-          expectedStored = JSON.stringify(parsed.record);
-        }
-
-        if (!isUpdateDue(parsed.record, now)) {
-          // Only backfill missing or stale schedule metadata; rewriting an
-          // unchanged record would cost a KV write per subscription per run.
-          if (!parsed.migrated && !scheduleMetadataMatches(key.metadata, parsed.record)) {
-            const metadataWritten = await putStoredSubscriptionIfUnchanged(
-              env,
-              token,
-              key.name,
-              expectedStored,
-              parsed.record
-            );
-            if (!metadataWritten) {
-              summary.skipped += 1;
-              continue;
-            }
-          }
-          summary.skipped += 1;
-          continue;
-        }
-
-        summary.due += 1;
-        const refreshed = await refreshStoredSubscription(parsed.record, now);
-        const persisted = await putStoredSubscriptionIfUnchanged(
-          env,
-          token,
-          key.name,
-          expectedStored,
-          refreshed.record
-        );
-        if (!persisted) {
-          summary.skipped += 1;
-          continue;
-        }
-        if (refreshed.ok) summary.updated += 1;
-        else summary.failed += 1;
-      } catch {
-        summary.failed += 1;
-      }
+      const next = isRecord(key.metadata) && typeof key.metadata.nextUpdateAt === "string"
+        ? Date.parse(key.metadata.nextUpdateAt)
+        : Number.NaN;
+      candidates.push({
+        token: key.name.slice(CONFIG_KEY_PREFIX.length),
+        metadata: key.metadata,
+        dueAt: Number.isFinite(next) ? next : 0,
+      });
     }
 
     if (page.list_complete || !page.cursor || page.cursor === cursor) break;
     cursor = page.cursor;
   } while (cursor);
+
+  // Most overdue first, so records deferred by the per-run cap go next time.
+  candidates.sort((a, b) => a.dueAt - b.dueAt);
+  const self = env.SELF && sessionSecret(env) ? env.SELF : undefined;
+  let dispatched = 0;
+  for (const candidate of candidates) {
+    if (self && dispatched >= MAX_CRON_DISPATCHES) {
+      summary.deferred += 1;
+      continue;
+    }
+    if (self) dispatched += 1;
+    const outcome = self
+      ? await dispatchScheduledSubscription(env, self, candidate.token, candidate.metadata, now)
+      : await processScheduledSubscription(env, candidate.token, candidate.metadata, now);
+    if (outcome !== "skipped") summary.due += 1;
+    if (outcome === "skipped" || outcome === "raced") summary.skipped += 1;
+    else summary[outcome] += 1;
+  }
 
   return summary;
 }

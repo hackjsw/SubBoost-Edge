@@ -110,6 +110,7 @@ function makeProps(overrides: Partial<React.ComponentProps<typeof NodeManagement
     setNodeOrder: vi.fn(),
     moveNode: vi.fn(),
     isListenerPortVisible: true,
+    connectivityResults: { [alpha.name]: { status: "ok" as const, latency: 42 } },
     removeNode: vi.fn(),
     restoreDeletedNode: vi.fn(),
     ...overrides,
@@ -165,6 +166,7 @@ describe("NodeManagementNodeList", () => {
     expect(html).toContain("顺序:");
     expect(html).toContain("已删除节点");
     expect(html).toContain("源名: Deleted");
+    expect(html).toContain("42 ms");
   });
 
   it("handles list actions for rename, listener ports, ordering, delete, and restore", () => {

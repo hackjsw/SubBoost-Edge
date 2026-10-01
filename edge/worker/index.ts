@@ -5,6 +5,7 @@ import {
   handleSourceImport,
   handleStoredConfig,
   handleSubscriptionRecord,
+  handleInternalSubscriptionRefresh,
   handleSubscriptions,
   resolveStoredConfigCapability,
   runScheduledSubscriptionUpdates,
@@ -12,6 +13,7 @@ import {
 import { handleAuthLogin, handleAuthLogout, isAuthenticated, unauthorizedResponse } from "./auth";
 import { handleClash, handleShorten, handleSub, handleTest } from "./subscription";
 import { methodNotAllowed } from "./http";
+import { INTERNAL_REFRESH_PATH } from "./constants";
 import { handleStoredConfigCapability } from "./stored-config-capability";
 import {
   handleRulesRefresh,
@@ -59,6 +61,7 @@ export async function handleRequest(
   }
   if (url.pathname === "/api/health") return handleHealth(request, env);
   if (url.pathname === "/api/cron/update-subscriptions") return handleCronSubscriptionUpdates(request, env);
+  if (url.pathname.startsWith(INTERNAL_REFRESH_PATH)) return handleInternalSubscriptionRefresh(request, env);
   if (url.pathname === "/api/auth/login") return handleAuthLogin(request, env);
   if (url.pathname === "/api/auth/logout") return handleAuthLogout(request);
   if (url.pathname.startsWith("/config-cap/")) {
