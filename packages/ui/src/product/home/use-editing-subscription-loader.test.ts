@@ -172,6 +172,22 @@ describe("useEditingSubscriptionLoader", () => {
     expect(mocks.useConfigStore.setState).not.toHaveBeenCalled();
   });
 
+  it("returns to the editing page after login when the login href has no next", async () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { location: { href: "", pathname: "/", search: "?editSubscriptionId=sub-1" } },
+    });
+    const options = makeOptions({
+      loadSubscription: vi.fn(async () => response(401, { error: "login required" })),
+      loginHref: "/login",
+    });
+
+    useEditingSubscriptionLoader(options);
+    await flushAsync();
+
+    expect(globalThis.window.location.href).toBe("/login?next=%2F%3FeditSubscriptionId%3Dsub-1");
+  });
+
   it("hydrates a saved subscription config into the editor store", async () => {
     const { reset, generateConfig } = resetStoreState({
       enabledProxyGroups: ["select", "auto", "ai", "youtube"],

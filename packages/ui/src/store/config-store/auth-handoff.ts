@@ -3,6 +3,7 @@ import { initialState } from "./definitions";
 import { safeParseJsonObject } from "@subboost/core/json";
 import { resolveProxyGroupAdvancedModeEnabled } from "@subboost/core/proxy-group-advanced-mode";
 import { normalizeRuleModelFromConfig } from "@subboost/core/rules/rule-model";
+import { captureEditingSubscriptionHandoff } from "@subboost/ui/store/ui-store";
 
 export const AUTH_CONFIG_HANDOFF_STORAGE_NAME = "subboost-auth-config-handoff";
 
@@ -256,6 +257,7 @@ function readHandoff(storage: AuthConfigHandoffStorage): Partial<ConfigState> | 
 export function captureAuthConfigHandoff(state: ConfigState): void {
   const storage = getSessionStorage();
   if (!storage) return;
+  captureEditingSubscriptionHandoff();
   if (!hasMeaningfulConfig(state)) {
     storage.removeItem(AUTH_CONFIG_HANDOFF_STORAGE_NAME);
     return;

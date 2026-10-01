@@ -52,7 +52,12 @@ export function useEditingSubscriptionLoader({
         const res = await loadSubscription(editSubscriptionId);
         if (res.status === 401) {
           captureAuthConfigHandoff(useConfigStore.getState());
-          window.location.href = loginHref;
+          // 登录后回到当前编辑页，而不是空白首页。
+          window.location.href = /[?&]next=/.test(loginHref)
+            ? loginHref
+            : `${loginHref}${loginHref.includes("?") ? "&" : "?"}next=${encodeURIComponent(
+              `${window.location.pathname}${window.location.search}`
+            )}`;
           return;
         }
 

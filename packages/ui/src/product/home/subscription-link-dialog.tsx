@@ -136,7 +136,7 @@ export function SubscriptionLinkDialog({
                     value={autoUpdateHours}
                     onChange={(e) => setAutoUpdateHours(Number(e.target.value))}
                   />
-                  <p className="text-xs text-white/45">最小 {minAutoUpdateLabel}，按创建时间计时</p>
+                  <p className="text-xs text-white/45">最小 {minAutoUpdateLabel}，{autoUpdatePolicy.scheduleNote}</p>
                 </div>
               )}
             </div>}
@@ -152,7 +152,7 @@ export function SubscriptionLinkDialog({
               ) : linkStorageMode === "persistent-kv" ? (
                 <ul className="text-xs text-amber-200/70 space-y-1">
                   <li>订阅源、节点凭据和最近成功配置会持久保存在 Cloudflare KV</li>
-                  <li>自动更新按所选间隔执行，调度精度约 15 分钟</li>
+                  <li>自动更新每 6 小时批量执行一次（UTC 0/6/12/18 点），按所选间隔对齐到最近一次执行</li>
                   <li>更新失败时继续提供上一次成功配置</li>
                   <li>订阅链接相当于访问凭证，请勿公开分享</li>
                 </ul>

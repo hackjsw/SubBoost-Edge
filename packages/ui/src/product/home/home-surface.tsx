@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { setConfigDraftUserScope, useConfigStore } from "@subboost/ui/store/config-store";
 import { consumeAuthConfigHandoff } from "@subboost/ui/store/config-store/auth-handoff";
 import { useUserStore, type User } from "@subboost/ui/store/user-store";
-import { useUIStore } from "@subboost/ui/store/ui-store";
+import { consumeEditingSubscriptionHandoff, useUIStore } from "@subboost/ui/store/ui-store";
 import { HomeLayout } from "@subboost/ui/product/home/home-layout";
 import { useHomeActions } from "@subboost/ui/product/home/use-home-actions";
 import { useCleanNewSubscriptionIntent } from "@subboost/ui/product/home/use-clean-new-subscription-intent";
@@ -146,7 +146,9 @@ function HomeSurfaceInner({ adapter }: Props) {
     if (!userId) return;
 
     const handoff = consumeAuthConfigHandoff();
+    const editingHandoff = consumeEditingSubscriptionHandoff();
     if (!handoff) return;
+    if (editingHandoff) setEditingSubscription(editingHandoff);
 
     useConfigStore.setState((state) => ({
       ...state,
@@ -159,7 +161,7 @@ function HomeSurfaceInner({ adapter }: Props) {
       historyIndex: -1,
     }));
     useConfigStore.getState().generateConfig();
-  }, [userId]);
+  }, [setEditingSubscription, userId]);
 
   React.useEffect(() => {
     if (!authChecked || !user) return;

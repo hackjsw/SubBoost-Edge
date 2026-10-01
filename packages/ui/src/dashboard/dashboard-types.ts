@@ -6,6 +6,8 @@ export interface SubscriptionAutoUpdateState {
   disabledAt: string | null;
   disabledReason: string | null;
   disabledPreviousInterval: number | null;
+  // Human-readable reason of the latest failed scheduled refresh, if any.
+  lastError?: string | null;
 }
 
 export interface Subscription {
@@ -20,6 +22,7 @@ export interface Subscription {
   lastUpdatedAt: string | null;
   lastAccessedAt: string | null;
   createdAt: string;
+  nextUpdateAt?: string | null;
 }
 
 export interface RefreshSubscriptionResponse {

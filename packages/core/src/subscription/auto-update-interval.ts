@@ -7,6 +7,8 @@ export type AutoUpdateIntervalPolicy = {
   minHours: number;
   stepHours: number;
   requireIntegerHours: boolean;
+  // How the schedule is timed, shown next to the interval input.
+  scheduleNote: string;
 };
 
 export type AutoUpdateIntervalPolicyOverride = Partial<AutoUpdateIntervalPolicy>;
@@ -36,6 +38,7 @@ export function resolveAutoUpdateIntervalPolicy(
     minHours: override?.minHours ?? getMinAutoUpdateIntervalHours(isAdmin),
     stepHours: override?.stepHours ?? 1,
     requireIntegerHours: override?.requireIntegerHours ?? true,
+    scheduleNote: override?.scheduleNote ?? "按创建时间计时",
   };
 }
 

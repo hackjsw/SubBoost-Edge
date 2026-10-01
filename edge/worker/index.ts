@@ -6,6 +6,7 @@ import {
   handleStoredConfig,
   handleSubscriptionRecord,
   handleSubscriptions,
+  resolveStoredConfigCapability,
   runScheduledSubscriptionUpdates,
 } from "./edge-api";
 import { handleAuthLogin, handleAuthLogout, isAuthenticated, unauthorizedResponse } from "./auth";
@@ -60,7 +61,9 @@ export async function handleRequest(
   if (url.pathname === "/api/cron/update-subscriptions") return handleCronSubscriptionUpdates(request, env);
   if (url.pathname === "/api/auth/login") return handleAuthLogin(request, env);
   if (url.pathname === "/api/auth/logout") return handleAuthLogout(request);
-  if (url.pathname.startsWith("/config-cap/")) return handleStoredConfigCapability(request, env);
+  if (url.pathname.startsWith("/config-cap/")) {
+    return handleStoredConfigCapability(request, env, capability => resolveStoredConfigCapability(env, capability));
+  }
   if (url.pathname.startsWith("/config/")) return handleStoredConfig(request, env, ctx);
 
   const publicStoredSubscription =

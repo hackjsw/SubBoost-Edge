@@ -658,6 +658,7 @@ describe("subscription response info helpers", () => {
       minHours: 12,
       stepHours: 1,
       requireIntegerHours: true,
+      scheduleNote: "按创建时间计时",
     });
     const localPolicy = resolveAutoUpdateIntervalPolicy(false, {
       defaultHours: 12,
@@ -670,7 +671,11 @@ describe("subscription response info helpers", () => {
       minHours: 0.1,
       stepHours: 0.1,
       requireIntegerHours: false,
+      scheduleNote: "按创建时间计时",
     });
+    expect(resolveAutoUpdateIntervalPolicy(true, { scheduleNote: "每 6 小时批量执行" }).scheduleNote).toBe(
+      "每 6 小时批量执行"
+    );
     expect(getAutoUpdateIntervalPolicyMinLabel(localPolicy)).toBe("0.1 小时");
     expect(autoUpdateIntervalHoursToSeconds(0.1)).toBe(360);
     expect(autoUpdateIntervalSecondsToHours(360)).toBe(0.1);

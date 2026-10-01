@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   clearUser: vi.fn(),
   configSetState: vi.fn(),
   consumeAuthConfigHandoff: vi.fn(),
+  consumeEditingSubscriptionHandoff: vi.fn(),
   fetchUser: vi.fn(),
   generateConfig: vi.fn(),
   handleAcceptSaveRequirement: vi.fn(),
@@ -96,6 +97,7 @@ vi.mock("@subboost/ui/store/user-store", () => ({
 }));
 
 vi.mock("@subboost/ui/store/ui-store", () => ({
+  consumeEditingSubscriptionHandoff: mocks.consumeEditingSubscriptionHandoff,
   useUIStore: (selector: (state: any) => unknown) =>
     selector({
       editingSubscription: { id: "sub-1", name: "Existing" },
@@ -257,6 +259,8 @@ describe("HomeSurface", () => {
 
   it("restores captured auth handoff config for signed-in users", () => {
     mocks.consumeAuthConfigHandoff.mockReturnValueOnce({ nodes: [{ name: "Restored" }], generatedYaml: "old" });
+    const editing = { id: "sub-1", token: "t", name: "Existing", autoUpdateInterval: null, smartNodeMatchingEnabled: false };
+    mocks.consumeEditingSubscriptionHandoff.mockReturnValueOnce(editing);
 
     renderToStaticMarkup(React.createElement(HomeSurface));
 
@@ -273,5 +277,7 @@ describe("HomeSurface", () => {
       historyIndex: -1,
     }));
     expect(mocks.generateConfig).toHaveBeenCalled();
+    // Re-login while editing must keep updating the same subscription.
+    expect(mocks.setEditingSubscription).toHaveBeenCalledWith(editing);
   });
 });

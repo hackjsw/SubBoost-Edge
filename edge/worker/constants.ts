@@ -34,3 +34,8 @@ export const MAX_REMOTE_REQUESTS_PER_REFRESH = 40;
 export const MAX_TEST_NODES = 64;
 export const MAX_MANAGED_SUBSCRIPTION_NODES = 10000;
 export const MIN_AUTO_UPDATE_INTERVAL_SECONDS = 60 * 60;
+// Keep in sync with the subscription cron in wrangler.jsonc ("0 */6 * * *").
+export const SUBSCRIPTION_CRON_INTERVAL_SECONDS = 6 * 60 * 60;
+// A record refreshed a few seconds after one run is due a few seconds after
+// the next; without slack it would wait a whole extra period.
+export const SUBSCRIPTION_SCHEDULE_GRACE_MS = (SUBSCRIPTION_CRON_INTERVAL_SECONDS * 1000) / 2;

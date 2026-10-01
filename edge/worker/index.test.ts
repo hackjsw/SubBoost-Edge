@@ -7,6 +7,7 @@ import {
   MAX_MANAGED_SUBSCRIPTION_NODES,
   MAX_REMOTE_REQUESTS_PER_REFRESH,
   MAX_TEST_NODES,
+  SUBSCRIPTION_SCHEDULE_GRACE_MS,
 } from "./constants";
 import { runScheduledSubscriptionUpdates } from "./edge-api";
 import worker, { handleRequest } from "./index";
@@ -623,15 +624,19 @@ describe("EdgeSub worker", () => {
       const converterUrl = new URL(String(fetchImpl.mock.calls[0]?.[0]));
       expect(converterUrl.searchParams.get("target")).toBe("clash");
       const capabilityUrl = converterUrl.searchParams.get("url");
-      expect(capabilityUrl).toMatch(/^https:\/\/edge\.test\/config-cap\/[a-f0-9]{32}$/);
+      expect(capabilityUrl).toMatch(/^https:\/\/edge\.test\/config-cap\/[A-Za-z0-9_-]+$/);
       expect(capabilityUrl).not.toContain(created.subscription.token);
-      expect(kv.writes.at(-1)).toMatchObject({
-        key: expect.stringMatching(/^edge-config-capability:v1:[a-f0-9]{32}$/),
-        expirationTtl: STORED_CONFIG_CAPABILITY_TTL_SECONDS,
-      });
+      // Conversions must not spend a KV write per client poll.
+      expect(kv.writes.some(write => write.key.startsWith("edge-config-capability:"))).toBe(false);
       const capabilityResponse = await handleRequest(new Request(capabilityUrl || ""), env);
       expect(capabilityResponse.status).toBe(200);
       expect(await capabilityResponse.text()).toContain("MATCH,DIRECT");
+      const configKey = `edge-config:${created.subscription.token}`;
+      const snapshot = kv.values.get(configKey)!;
+      kv.values.set(configKey, JSON.stringify({ ...JSON.parse(snapshot), name: "Changed" }));
+      // A capability is pinned to the revision whose proxies it is merged with.
+      expect((await handleRequest(new Request(capabilityUrl || ""), env)).status).toBe(404);
+      kv.values.set(configKey, snapshot);
       expect(converterUrl.searchParams.get("config")).toBe(
         getClashConversionProfile("acl4ssr-online-mini").configUrl
       );
@@ -1216,12 +1221,45 @@ describe("EdgeSub worker", () => {
 
     const summary = await runScheduledSubscriptionUpdates(
       env,
-      new Date(new Date(created.subscription.nextUpdateAt).getTime() - 1000)
+      new Date(new Date(created.subscription.nextUpdateAt).getTime() - SUBSCRIPTION_SCHEDULE_GRACE_MS - 1000)
     );
 
     expect(summary).toMatchObject({ scanned: 1, due: 0, updated: 0, failed: 0, skipped: 1 });
     expect(kv.reads).not.toContain(key);
     expect(kv.metadata.get(key)).toMatchObject({ version: 1, autoUpdate: true });
+  });
+
+  it("refreshes a record due seconds after the cron fires instead of skipping a whole period", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const source =
+      "vless://00000000-0000-4000-8000-000000000000@example.com:443?encryption=none&security=tls#Edge";
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Six Hourly",
+          yaml: "proxies: []\nrules: []\n",
+          autoUpdateInterval: 6 * 3600,
+          urls: [],
+          nodes: [parseNodeLink(source)],
+          config: { template: "minimal", sources: [{ id: "source-1", type: "nodes", content: source }] },
+        }),
+      }),
+      env
+    );
+    const created = (await createResponse.json()) as {
+      subscription: { token: string; nextUpdateAt: string; subscriptionUrl: string };
+    };
+
+    // The cron fires on the hour; the record was saved a few seconds later.
+    const cronTime = new Date(new Date(created.subscription.nextUpdateAt).getTime() - 5000);
+    await expect(runScheduledSubscriptionUpdates(env, cronTime)).resolves.toMatchObject({ due: 1, failed: 0 });
+
+    const config = await handleRequest(new Request(`${created.subscription.subscriptionUrl}?raw=1`), env);
+    expect(Number(config.headers.get("profile-update-interval"))).toBeGreaterThanOrEqual(6);
   });
 
   it("backfills schedule metadata once for records from earlier deployments", async () => {
@@ -1283,7 +1321,7 @@ describe("EdgeSub worker", () => {
     const writesAfterCreate = kv.writes.filter(write => write.key === key).length;
     expect(writesAfterCreate).toBe(1);
 
-    const beforeDue = new Date(new Date(created.subscription.nextUpdateAt).getTime() - 1000);
+    const beforeDue = new Date(new Date(created.subscription.nextUpdateAt).getTime() - SUBSCRIPTION_SCHEDULE_GRACE_MS - 1000);
     for (let run = 0; run < 3; run++) {
       await expect(runScheduledSubscriptionUpdates(env, beforeDue)).resolves.toMatchObject({
         scanned: 1, due: 0, updated: 0, failed: 0, skipped: 1,
@@ -1685,6 +1723,14 @@ describe("EdgeSub worker", () => {
     expect(summary).toMatchObject({ scanned: 1, due: 1, updated: 0, failed: 1 });
     expect(stored.yaml).toBe(previousYaml);
     expect(stored.lastError).toBeTruthy();
+
+    // The dashboard needs the reason, otherwise a failing source looks healthy.
+    const list = await handleRequest(authenticatedRequest("https://edge.test/api/subscriptions", cookie), env);
+    const { subscriptions } = (await list.json()) as {
+      subscriptions: Array<{ autoUpdateState: { lastError: string | null; lastFailedAt: string | null } }>;
+    };
+    expect(subscriptions[0].autoUpdateState.lastError).toBe(stored.lastError);
+    expect(subscriptions[0].autoUpdateState.lastFailedAt).toBeTruthy();
   });
 
   it("rejects private subscription import targets", async () => {

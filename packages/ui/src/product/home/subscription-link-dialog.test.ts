@@ -105,6 +105,7 @@ const baseProps = {
     minHours: 12,
     stepHours: 1,
     requireIntegerHours: true,
+    scheduleNote: "按创建时间计时",
   },
   smartNodeMatchingEnabled: true,
   setSmartNodeMatchingEnabled: vi.fn(),

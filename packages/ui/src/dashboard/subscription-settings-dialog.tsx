@@ -62,7 +62,7 @@ export function SubscriptionSettingsDialog({
         <DialogHeader>
           <DialogTitle>订阅设置</DialogTitle>
           <DialogDescription>
-            改名与自动更新配置（最小 {getAutoUpdateIntervalPolicyMinLabel(policy)}，按创建时间计时）
+            改名与自动更新配置（最小 {getAutoUpdateIntervalPolicyMinLabel(policy)}，{policy.scheduleNote}）
           </DialogDescription>
         </DialogHeader>
 

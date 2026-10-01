@@ -72,7 +72,7 @@ vi.mock("@subboost/ui/components/ui/card", () => ({
   CardTitle: (props: any) => props.children,
 }));
 vi.mock("@subboost/ui/components/ui/confirm-dialog", () => ({ confirmDialog: mocks.confirmDialog }));
-vi.mock("@subboost/ui/components/ui/toaster", () => ({ toast: mocks.toast }));
+vi.mock("@subboost/ui/components/ui/toaster", () => ({ toast: mocks.toast, ToastAction: (props: any) => props.children }));
 vi.mock("@subboost/ui/store/user-store", () => ({ useUserStore: () => mocks.userStore }));
 vi.mock("@subboost/core/subscription/auto-update-interval", () => ({
   autoUpdateIntervalHoursToSeconds: (hours: number) => Math.round(hours * 3600),
@@ -226,7 +226,7 @@ describe("SubscriptionDashboardSurface", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.captures = { buttons: [] };
-    mocks.userStore = { user, isLoading: false, fetchUser: vi.fn() };
+    mocks.userStore = { user, isLoading: false, fetchUser: vi.fn(), clearUser: vi.fn() };
     mocks.confirmDialog.mockResolvedValue(true);
     mocks.clipboardWriteText.mockResolvedValue(undefined);
     mocks.buildRefreshSubscriptionSuccessToast.mockReturnValue({ title: "刷新成功", variant: "success" });
@@ -268,6 +268,23 @@ describe("SubscriptionDashboardSurface", () => {
     expect(mocks.captures.settingsDialog).toEqual(expect.objectContaining({ open: false, userIsAdmin: false }));
   });
 
+  it("shows load errors, refresh failures, and the next scheduled update", () => {
+    mocks.userStore = { user, isLoading: false, fetchUser: vi.fn(), clearUser: vi.fn() };
+    const failedLoad = renderSurface(createAdapter(), { 0: [], 1: false, 11: "network down" });
+    expect(failedLoad.html).toContain("订阅列表加载失败");
+    expect(failedLoad.html).toContain("network down");
+    expect(failedLoad.html).not.toContain("暂无订阅");
+
+    const failing = {
+      ...subscription,
+      nextUpdateAt: "2026-01-03T00:00:00.000Z",
+      autoUpdateState: { ...subscription.autoUpdateState, lastFailedAt: "2026-01-02T06:00:00.000Z", lastError: "HTTP 503" },
+    };
+    const { html } = renderSurface(createAdapter(), { 0: [failing], 1: false });
+    expect(html).toContain("下次更新约 date:2026-01-03T00:00:00.000Z");
+    expect(html).toContain("更新失败，继续提供上次成功的配置：HTTP 503");
+  });
+
   it("runs mount effects, handles fetch failures, and shows disabled auto-update notices", async () => {
     const adapter = createAdapter({ fetchSubscriptions: vi.fn(async () => [subscription]) });
     const mounted = renderSurface(adapter, {}, { runEffects: true });
@@ -279,7 +296,17 @@ describe("SubscriptionDashboardSurface", () => {
     const failingAdapter = createAdapter({ fetchSubscriptions: vi.fn(async () => { throw new Error("offline"); }) });
     const failed = renderSurface(failingAdapter, {}, { runEffects: true });
     await flushPromises();
-    expect(failed.setters[0]).toHaveBeenCalledWith([]);
+    // A failed load keeps the current list and shows a retryable error instead of "no subscriptions".
+    expect(failed.setters[0]).not.toHaveBeenCalled();
+    expect(failed.setters[11]).toHaveBeenCalledWith("offline");
+
+    const expiredAdapter = createAdapter({
+      fetchSubscriptions: vi.fn(async () => { throw Object.assign(new Error("请先登录"), { status: 401 }); }),
+    });
+    const expired = renderSurface(expiredAdapter, {}, { runEffects: true });
+    await flushPromises();
+    expect(mocks.userStore.clearUser).toHaveBeenCalled();
+    expect(expired.setters[11]).not.toHaveBeenCalled();
 
     renderSurface(adapter, { 0: [disabledSubscription], 1: false }, { runEffects: true });
     await flushPromises();
@@ -398,7 +425,7 @@ describe("SubscriptionDashboardSurface", () => {
     TestURL.revokeObjectURL = vi.fn();
     vi.stubGlobal("URL", TestURL);
     vi.stubGlobal("fetch", fetchMock);
-    const { html } = renderSurface(createAdapter({ supportsV2rayN: true }), { 0: [subscription], 1: false, 11: "v2rayn" });
+    const { html } = renderSurface(createAdapter({ supportsV2rayN: true }), { 0: [subscription], 1: false, 12: "v2rayn" });
     expect(html).toContain("v2rayN");
     await mocks.captures.buttons.find((props: any) => props.title === "复制订阅链接").onClick();
     expect(mocks.clipboardWriteText).toHaveBeenCalledWith("https://example.com/sub?format=v2rayn");
@@ -437,6 +464,21 @@ describe("SubscriptionDashboardSurface", () => {
     expect(resolveDownloadUrl).toHaveBeenCalledWith(crossOriginSubscription);
     expect(fetchMock).toHaveBeenCalledWith("http://localhost/download/token-1?download=1");
     expect(dom.anchor.download).toBe("Primary.yaml");
+  });
+
+  it("offers a login action when an action hits an expired session", async () => {
+    const adapter = createAdapter({
+      refreshSubscription: vi.fn(async () => { throw Object.assign(new Error("请先登录"), { status: 401 }); }),
+    });
+    renderSurface(adapter, { 0: [subscription], 1: false, 2: null, 3: null });
+    mocks.captures.buttons.find((props: any) => props.title === "重新生成配置并刷新缓存").onClick();
+    await flushPromises();
+
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "登录已过期",
+      variant: "warning",
+      action: expect.objectContaining({ props: expect.objectContaining({ altText: "去登录" }) }),
+    }));
   });
 
   it("guards cancelled delete and in-flight refresh failures", async () => {

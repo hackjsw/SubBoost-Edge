@@ -21,7 +21,8 @@ import {
 import { Button } from "@subboost/ui/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@subboost/ui/components/ui/card";
 import { confirmDialog } from "@subboost/ui/components/ui/confirm-dialog";
-import { toast } from "@subboost/ui/components/ui/toaster";
+import { toast, ToastAction } from "@subboost/ui/components/ui/toaster";
+import { isUnauthorizedError } from "@subboost/ui/dashboard/dashboard-errors";
 import { useUserStore, type User } from "@subboost/ui/store/user-store";
 import {
   autoUpdateIntervalHoursToSeconds,
@@ -117,7 +118,8 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 export function SubscriptionDashboardSurface({ adapter }: Props) {
-  const { user, isLoading: userLoading, fetchUser } = useUserStore();
+  const { user, isLoading: userLoading, fetchUser, clearUser } = useUserStore();
+  const loginHref = adapter.loginHref ?? "/login";
   const [subscriptions, setSubscriptions] = React.useState<Subscription[]>([]);
   const autoUpdateNoticeRef = React.useRef<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -135,6 +137,7 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
   );
   const [autoUpdateHours, setAutoUpdateHours] = React.useState<number>(autoUpdatePolicy.defaultHours);
   const [savingSettings, setSavingSettings] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     void fetchUser();
@@ -144,13 +147,39 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
     try {
       const nextSubscriptions = await adapter.fetchSubscriptions();
       setSubscriptions(nextSubscriptions);
+      setLoadError(null);
     } catch (error) {
       console.error("Failed to fetch subscriptions:", error);
-      setSubscriptions([]);
+      if (isUnauthorizedError(error)) {
+        clearUser();
+        return;
+      }
+      // Keep what is already on screen; an empty list would read as "no subscriptions".
+      setLoadError(error instanceof Error ? error.message : "加载订阅失败");
     } finally {
       setIsLoading(false);
     }
-  }, [adapter]);
+  }, [adapter, clearUser]);
+
+  const showActionError = React.useCallback(
+    (error: unknown, fallback: string, useErrorMessage = true) => {
+      if (isUnauthorizedError(error)) {
+        toast({
+          title: "登录已过期",
+          description: "请重新登录后再操作。",
+          variant: "warning",
+          action: (
+            <ToastAction altText="去登录" onClick={() => { window.location.href = loginHref; }}>
+              去登录
+            </ToastAction>
+          ),
+        });
+        return;
+      }
+      toast({ title: useErrorMessage && error instanceof Error ? error.message : fallback, variant: "destructive" });
+    },
+    [loginHref]
+  );
 
   React.useEffect(() => {
     if (!user) {
@@ -249,7 +278,7 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
       setSubscriptions((prev) => prev.filter((s) => s.id !== id));
     } catch (error) {
       console.error("Failed to delete subscription:", error);
-      toast({ title: "删除失败，请稍后重试", variant: "destructive" });
+      showActionError(error, "删除失败，请稍后重试", false);
     }
   };
 
@@ -262,7 +291,7 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
       toast(buildRefreshSubscriptionSuccessToast(data));
     } catch (error) {
       console.error("Failed to refresh subscription:", error);
-      toast({ title: error instanceof Error ? error.message : "刷新失败，请稍后重试", variant: "destructive" });
+      showActionError(error, "刷新失败，请稍后重试");
     } finally {
       setRefreshingId(null);
     }
@@ -343,14 +372,14 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
       setSettingsOpen(false);
     } catch (error) {
       console.error("Failed to save subscription settings:", error);
-      toast({ title: error instanceof Error ? error.message : "保存失败，请稍后重试", variant: "destructive" });
+      showActionError(error, "保存失败，请稍后重试");
     } finally {
       setSavingSettings(false);
     }
   };
 
   if (userLoading) return <DashboardSkeleton />;
-  if (!user) return <LoginPrompt loginHref={adapter.loginHref ?? "/login"} />;
+  if (!user) return <LoginPrompt loginHref={loginHref} />;
 
   const newSubscriptionHref = adapter.newSubscriptionHref ?? "/?newSubscription=1";
   const editSubscriptionHref = adapter.editSubscriptionHref ?? ((sub: Subscription) => `/?editSubscriptionId=${sub.id}`);
@@ -389,6 +418,19 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
               {[1, 2].map((i) => (
                 <div key={i} className="h-24 bg-white/10 rounded-lg animate-pulse" />
               ))}
+            </div>
+          ) : loadError && subscriptions.length === 0 ? (
+            <div className="text-center py-12">
+              <h3 className="text-lg font-medium mb-2">订阅列表加载失败</h3>
+              <p className="text-white/50 mb-4">{loadError}</p>
+              <Button
+                onClick={() => {
+                  setIsLoading(true);
+                  void fetchSubscriptions();
+                }}
+              >
+                重试
+              </Button>
             </div>
           ) : subscriptions.length === 0 ? (
             <div className="text-center py-12">
@@ -547,6 +589,24 @@ function SubscriptionRow({
               <span className="flex items-center gap-1">
                 <RefreshCw className="h-3.5 w-3.5" />
                 每 {formatIntervalLabel(sub.autoUpdateInterval)} 刷新缓存
+              </span>
+            )}
+            {sub.autoUpdateInterval && sub.nextUpdateAt && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" />
+                下次更新约 {formatDashboardDate(sub.nextUpdateAt)}
+              </span>
+            )}
+            {sub.autoUpdateState.lastError && (
+              <span
+                className="flex min-w-0 max-w-full items-center gap-1 text-amber-300"
+                title={sub.autoUpdateState.lastError}
+              >
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">
+                  {sub.autoUpdateState.lastFailedAt ? `${formatDashboardDate(sub.autoUpdateState.lastFailedAt)} ` : ""}
+                  更新失败，继续提供上次成功的配置：{sub.autoUpdateState.lastError}
+                </span>
               </span>
             )}
             {!sub.autoUpdateInterval && sub.autoUpdateState.disabledAt && sub.autoUpdateState.disabledReason && (

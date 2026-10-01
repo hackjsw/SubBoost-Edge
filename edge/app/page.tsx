@@ -57,8 +57,9 @@ const edgeHomeAdapter: HomeSurfaceAdapter = {
     loginHref: "/login",
     autoUpdateIntervalPolicy: {
       defaultHours: 24,
-      minHours: 1,
-      stepHours: 1,
+      minHours: 6,
+      stepHours: 6,
+      scheduleNote: "每 6 小时批量执行一次，按间隔对齐到最近一次执行",
       requireIntegerHours: true,
     },
     defaultAutoUpdateEnabled: true,

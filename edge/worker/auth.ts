@@ -44,7 +44,7 @@ async function importHmacKey(secret: string): Promise<CryptoKey> {
   );
 }
 
-function sessionSecret(env: WorkerEnv): string {
+export function sessionSecret(env: WorkerEnv): string {
   return env.EDGE_SESSION_SECRET?.trim() || env.EDGE_ADMIN_PASSWORD?.trim() || "";
 }
 

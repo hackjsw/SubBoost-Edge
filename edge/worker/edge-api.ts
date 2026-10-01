@@ -37,12 +37,14 @@ import {
   MAX_STORED_SUBSCRIPTION_BYTES,
   MAX_STORED_YAML_BYTES,
   MIN_AUTO_UPDATE_INTERVAL_SECONDS,
+  SUBSCRIPTION_CRON_INTERVAL_SECONDS,
+  SUBSCRIPTION_SCHEDULE_GRACE_MS,
 } from "./constants";
 import { byteLength } from "./encoding";
 import { isAuthenticated } from "./auth";
 import { json, methodNotAllowed, readJsonBody } from "./http";
 import { fetchRemoteText } from "./remote-fetch";
-import { createStoredConfigCapability } from "./stored-config-capability";
+import { createStoredConfigCapability, type StoredConfigCapability } from "./stored-config-capability";
 import { readStoredValue, writeStoredValue } from "./subscription-store";
 import {
   invalidateStoredConfigCache,
@@ -280,10 +282,11 @@ function nextUpdateTime(now: Date, intervalSeconds: number): string {
 function isUpdateDue(record: StoredSubscription, now: Date): boolean {
   if (!record.autoUpdateInterval) return false;
   const explicitNext = record.nextUpdateAt ? Date.parse(record.nextUpdateAt) : Number.NaN;
-  if (Number.isFinite(explicitNext)) return explicitNext <= now.getTime();
+  const dueBy = now.getTime() + SUBSCRIPTION_SCHEDULE_GRACE_MS;
+  if (Number.isFinite(explicitNext)) return explicitNext <= dueBy;
 
   const baseline = Date.parse(record.lastSuccessAt || record.updatedAt || record.createdAt);
-  return !Number.isFinite(baseline) || baseline + record.autoUpdateInterval * 1000 <= now.getTime();
+  return !Number.isFinite(baseline) || baseline + record.autoUpdateInterval * 1000 <= dueBy;
 }
 
 function subscriptionScheduleMetadata(record: StoredSubscription): SubscriptionScheduleMetadata {
@@ -376,7 +379,7 @@ function metadataUpdateDue(metadata: unknown, now: Date): boolean | null {
   if (!metadata.autoUpdate) return false;
   if (typeof metadata.nextUpdateAt !== "string") return true;
   const nextUpdateAt = Date.parse(metadata.nextUpdateAt);
-  return !Number.isFinite(nextUpdateAt) || nextUpdateAt <= now.getTime();
+  return !Number.isFinite(nextUpdateAt) || nextUpdateAt <= now.getTime() + SUBSCRIPTION_SCHEDULE_GRACE_MS;
 }
 
 function scheduleMetadataMatches(metadata: unknown, record: StoredSubscription): boolean {
@@ -666,7 +669,7 @@ export function handleHealth(request: Request, env: WorkerEnv): Response {
   return json({
     status: "ok",
     service: "edgesub",
-    version: "2.6.0-edge.4",
+    version: "2.6.0-edge.5",
     kv: Boolean(env.SUB_KV),
     auth: Boolean(env.EDGE_ADMIN_PASSWORD?.trim()),
   });
@@ -811,6 +814,7 @@ function publicSubscription(token: string, record: StoredSubscription, origin: s
       disabledAt: null,
       disabledReason: null,
       disabledPreviousInterval: null,
+      lastError: record.lastError ?? null,
     },
     smartNodeMatchingEnabled: record.config.smartNodeMatchingEnabled !== false,
     lastUpdatedAt: record.lastSuccessAt || record.updatedAt,
@@ -1054,6 +1058,24 @@ export async function handleStoredConfig(
   );
 }
 
+async function storedRevision(stored: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(stored));
+  return Array.from(new Uint8Array(digest).slice(0, 16), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+// Serves the placeholder template behind a sealed capability. The revision
+// pins the snapshot whose real proxies the converter response is merged with.
+export async function resolveStoredConfigCapability(
+  env: WorkerEnv,
+  capability: StoredConfigCapability
+): Promise<string | null> {
+  if (!env.SUB_KV || !TOKEN_PATTERN.test(capability.token)) return null;
+  const stored = (await readStoredValue(env, capability.token)).value;
+  if (!stored || (await storedRevision(stored)) !== capability.revision) return null;
+  const parsed = parseStoredSubscription(stored);
+  return parsed ? prepareClashTemplateSource(parsed.record.yaml).yaml : null;
+}
+
 async function loadStoredConfigFromKv(
   request: Request,
   env: WorkerEnv,
@@ -1088,6 +1110,8 @@ async function loadStoredConfigFromKv(
     const headers = new Headers(
       buildSubscriptionResponseHeaders(record.name, record.subscriptionInfo, {
         autoUpdateIntervalSeconds: record.autoUpdateInterval,
+        // Content cannot change faster than the cron runs; don't ask clients to poll faster.
+        cacheExpirySeconds: SUBSCRIPTION_CRON_INTERVAL_SECONDS,
         isAdmin: true,
         cacheControl: "no-store",
       })
@@ -1110,7 +1134,15 @@ async function loadStoredConfigFromKv(
           return storedConfigError("Subconverter backend is not configured", 503, method);
         }
         const templateSource = prepareClashTemplateSource(record.yaml);
-        const sourceUrl = await createStoredConfigCapability(env, request.url, templateSource.yaml);
+        let sourceUrl: string;
+        try {
+          sourceUrl = await createStoredConfigCapability(env, request.url, {
+            token,
+            revision: await storedRevision(stored),
+          });
+        } catch {
+          return storedConfigError("Session secret is not configured", 503, method);
+        }
         return convertClashSubscription({
           env,
           sourceUrl,

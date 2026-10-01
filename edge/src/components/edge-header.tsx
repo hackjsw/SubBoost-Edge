@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -9,6 +10,9 @@ export function EdgeHeader() {
   const pathname = usePathname();
   const router = useRouter();
   const isLoginPage = pathname === "/login";
+  // Static export: the deployment host is only known in the browser.
+  const [host, setHost] = React.useState("");
+  React.useEffect(() => setHost(window.location.host), []);
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
@@ -35,7 +39,7 @@ export function EdgeHeader() {
                 Edge
               </span>
             </div>
-            <span className="hidden text-[11px] text-[#60706d] sm:block">sub.cces.us.ci</span>
+            {host && <span className="hidden text-[11px] text-[#60706d] sm:block">{host}</span>}
           </div>
         </Link>
 
