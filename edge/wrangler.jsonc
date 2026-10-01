@@ -25,7 +25,7 @@
   },
   "migrations": [{ "tag": "v1-subscription-store", "new_sqlite_classes": ["SubscriptionStore"] }],
   "triggers": {
-    "crons": ["*/15 * * * *", "17 3 * * *"]
+    "crons": ["0 */6 * * *", "17 3 * * *"]
   },
   "observability": {
     "enabled": true,

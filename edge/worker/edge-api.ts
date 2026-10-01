@@ -379,6 +379,16 @@ function metadataUpdateDue(metadata: unknown, now: Date): boolean | null {
   return !Number.isFinite(nextUpdateAt) || nextUpdateAt <= now.getTime();
 }
 
+function scheduleMetadataMatches(metadata: unknown, record: StoredSubscription): boolean {
+  if (!isRecord(metadata)) return false;
+  const expected = subscriptionScheduleMetadata(record);
+  return (
+    metadata.version === expected.version &&
+    metadata.autoUpdate === expected.autoUpdate &&
+    metadata.nextUpdateAt === expected.nextUpdateAt
+  );
+}
+
 async function fetchSourceImportTransport(
   request: SourceImportTransportRequest
 ): Promise<SourceImportTransportResult> {
@@ -656,7 +666,7 @@ export function handleHealth(request: Request, env: WorkerEnv): Response {
   return json({
     status: "ok",
     service: "edgesub",
-    version: "2.6.0-edge.3",
+    version: "2.6.0-edge.4",
     kv: Boolean(env.SUB_KV),
     auth: Boolean(env.EDGE_ADMIN_PASSWORD?.trim()),
   });
@@ -1174,7 +1184,9 @@ export async function runScheduledSubscriptionUpdates(
         }
 
         if (!isUpdateDue(parsed.record, now)) {
-          if (!parsed.migrated) {
+          // Only backfill missing or stale schedule metadata; rewriting an
+          // unchanged record would cost a KV write per subscription per run.
+          if (!parsed.migrated && !scheduleMetadataMatches(key.metadata, parsed.record)) {
             const metadataWritten = await putStoredSubscriptionIfUnchanged(
               env,
               token,

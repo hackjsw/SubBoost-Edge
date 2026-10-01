@@ -17,6 +17,7 @@ import {
 } from "./rules-api";
 import { resetStoredConfigCache } from "./stored-config-cache";
 import { STORED_CONFIG_CAPABILITY_TTL_SECONDS } from "./stored-config-capability";
+import { SubscriptionStore, type SubscriptionStoreState } from "./subscription-store";
 import type { ExecutionContextLike, KVNamespaceLike, WorkerEnv } from "./types";
 import { safeBase64Decode } from "./encoding";
 import { parseNodeLink } from "@subboost/core/parser";
@@ -81,6 +82,62 @@ function createContext(): ExecutionContextLike & { promises: Promise<unknown>[] 
       promises.push(promise);
     },
   };
+}
+
+// Minimal stand-in for the SQLite storage used by SubscriptionStore.
+class MemorySubscriptionStoreState implements SubscriptionStoreState {
+  private row: Record<string, unknown> | undefined;
+  private readonly chunks = new Map<number, string>();
+  readonly storage: SubscriptionStoreState["storage"] = {
+    sql: {
+      exec: (query: string, ...bindings: (string | number | null)[]) => {
+        const rows: Record<string, unknown>[] = [];
+        if (query.startsWith("SELECT * FROM subscription_state")) {
+          if (this.row) rows.push({ ...this.row });
+        } else if (query.startsWith("SELECT content FROM subscription_chunks")) {
+          for (const [, content] of [...this.chunks].sort(([a], [b]) => a - b)) rows.push({ content });
+        } else if (query.startsWith("DELETE FROM subscription_chunks")) {
+          this.chunks.clear();
+        } else if (query.startsWith("INSERT INTO subscription_chunks")) {
+          this.chunks.set(bindings[0] as number, bindings[1] as string);
+        } else if (query.startsWith("INSERT OR REPLACE INTO subscription_state")) {
+          const [token, present, revision, metadata, dirty] = bindings;
+          this.row = { id: 1, token, present, revision, metadata, dirty };
+        } else if (query.startsWith("UPDATE subscription_state SET dirty = 0")) {
+          if (this.row) this.row.dirty = 0;
+        } else if (!query.startsWith("CREATE TABLE")) {
+          throw new Error(`Unsupported SQL in test: ${query}`);
+        }
+        return { toArray: () => rows as never[] };
+      },
+    },
+    transactionSync: (callback) => callback(),
+    setAlarm: async () => {},
+    deleteAlarm: async () => {},
+  };
+
+  blockConcurrencyWhile<T>(callback: () => Promise<T>): Promise<T> {
+    return callback();
+  }
+}
+
+function attachSubscriptionStore(env: WorkerEnv): WorkerEnv {
+  const stores = new Map<string, SubscriptionStore>();
+  env.SUB_STORE = {
+    idFromName: (name) => name,
+    get: (id) => ({
+      fetch: (request) => {
+        const name = String(id);
+        let store = stores.get(name);
+        if (!store) {
+          store = new SubscriptionStore(new MemorySubscriptionStoreState(), env);
+          stores.set(name, store);
+        }
+        return store.fetch(request);
+      },
+    }),
+  };
+  return env;
 }
 
 const TEST_PASSWORD = "test-admin-password";
@@ -299,7 +356,7 @@ describe("EdgeSub worker", () => {
     expect(meData.user?.isAdmin).toBe(true);
   });
 
-  it("creates legacy short links and refreshes their rolling TTL", async () => {
+  it("creates legacy short links and refreshes their rolling TTL at most daily", async () => {
     const kv = new MemoryKv();
     const env = createEnv(kv);
     const cookie = await login(env);
@@ -330,7 +387,34 @@ describe("EdgeSub worker", () => {
     expect(content).toContain("www.shopify.com");
     expect(content).toContain("example.com");
     await Promise.all(ctx.promises);
+    // Created moments ago, so this read must not spend a KV write on the TTL.
+    expect(kv.writes).toHaveLength(1);
+
+    const stale = JSON.parse(kv.values.get(created.id)!) as Record<string, unknown>;
+    kv.values.set(created.id, JSON.stringify({ ...stale, refreshedAt: Date.now() - 2 * 24 * 60 * 60 * 1000 }));
+    const staleCtx = createContext();
+    expect((await handleRequest(new Request(`${created.shortUrl}&raw=true`), { SUB_KV: kv }, staleCtx)).status).toBe(200);
+    await Promise.all(staleCtx.promises);
+    expect(kv.writes).toHaveLength(2);
     expect(kv.writes.at(-1)).toEqual({ key: created.id, expirationTtl: KV_TTL });
+    expect(Date.now() - (JSON.parse(kv.values.get(created.id)!) as { refreshedAt: number }).refreshedAt).toBeLessThan(60_000);
+  });
+
+  it("refreshes short links created before refresh tracking", async () => {
+    const kv = new MemoryKv();
+    const id = "abcdef123456";
+    kv.values.set(id, JSON.stringify({
+      template: "",
+      source: "vless://00000000-0000-4000-8000-000000000000@example.com:443?security=tls#HK",
+      dedup: true,
+    }));
+    const ctx = createContext();
+    const response = await handleRequest(new Request(`https://edge.test/sub?id=${id}&raw=true`), { SUB_KV: kv }, ctx);
+    await Promise.all(ctx.promises);
+
+    expect(response.status).toBe(200);
+    expect(kv.writes).toEqual([{ key: id, expirationTtl: KV_TTL }]);
+    expect(JSON.parse(kv.values.get(id)!)).toMatchObject({ dedup: true, refreshedAt: expect.any(Number) });
   });
 
   it("stores generated YAML persistently without refreshing a TTL on access", async () => {
@@ -1170,6 +1254,69 @@ describe("EdgeSub worker", () => {
     kv.reads.length = 0;
     await runScheduledSubscriptionUpdates({ SUB_KV: kv });
     expect(kv.reads).not.toContain(key);
+  });
+
+  it("does not spend KV writes on not-due Durable Object subscriptions", async () => {
+    const kv = new MemoryKv();
+    const env = attachSubscriptionStore(createEnv(kv));
+    const cookie = await login(env);
+    const source =
+      "vless://00000000-0000-4000-8000-000000000000@example.com:443?encryption=none&security=tls#Edge";
+    const createResponse = await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Not Due",
+          yaml: "proxies: []\nrules: []\n",
+          autoUpdateInterval: 3600,
+          urls: [],
+          nodes: [parseNodeLink(source)],
+          config: { sources: [{ id: "source-1", type: "nodes", content: source }] },
+        }),
+      }),
+      env
+    );
+    expect(createResponse.status).toBe(200);
+    const created = (await createResponse.json()) as { subscription: { token: string; nextUpdateAt: string } };
+    const key = `edge-config:${created.subscription.token}`;
+    const writesAfterCreate = kv.writes.filter(write => write.key === key).length;
+    expect(writesAfterCreate).toBe(1);
+
+    const beforeDue = new Date(new Date(created.subscription.nextUpdateAt).getTime() - 1000);
+    for (let run = 0; run < 3; run++) {
+      await expect(runScheduledSubscriptionUpdates(env, beforeDue)).resolves.toMatchObject({
+        scanned: 1, due: 0, updated: 0, failed: 0, skipped: 1,
+      });
+    }
+    expect(kv.writes.filter(write => write.key === key)).toHaveLength(writesAfterCreate);
+  });
+
+  it("backfills legacy metadata through the Durable Object only once", async () => {
+    const kv = new MemoryKv();
+    const env = attachSubscriptionStore(createEnv(kv));
+    const token = "c".repeat(20);
+    const key = `edge-config:${token}`;
+    kv.values.set(key, JSON.stringify({
+      version: 2,
+      name: "Legacy Metadata",
+      yaml: "proxies: []\nrules: []\n",
+      urls: [],
+      nodes: [],
+      config: {},
+      subscriptionInfo: {},
+      autoUpdateInterval: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }));
+
+    await runScheduledSubscriptionUpdates(env);
+    expect(kv.metadata.get(key)).toEqual({ version: 1, autoUpdate: false });
+    expect(kv.writes.filter(write => write.key === key)).toHaveLength(1);
+
+    await runScheduledSubscriptionUpdates(env);
+    await runScheduledSubscriptionUpdates(env);
+    expect(kv.writes.filter(write => write.key === key)).toHaveLength(1);
   });
 
   it("serves authenticated rule search from a persistent KV index", async () => {

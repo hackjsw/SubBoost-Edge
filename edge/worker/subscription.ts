@@ -13,6 +13,7 @@ import {
   MAX_SOURCE_ITEMS,
   MAX_TEST_NODES,
   REGION_CONFIG,
+  SHORT_LINK_REFRESH_INTERVAL_MS,
 } from "./constants";
 import { byteLength, safeBase64Decode, utf8ToBase64 } from "./encoding";
 import { json, methodNotAllowed, readJsonBody } from "./http";
@@ -115,7 +116,7 @@ export async function handleShorten(request: Request, env: WorkerEnv): Promise<R
     .join("")
     .slice(0, 12);
 
-  await env.SUB_KV.put(id, bodyString, { expirationTtl: KV_TTL });
+  await env.SUB_KV.put(id, JSON.stringify({ ...stored, refreshedAt: Date.now() }), { expirationTtl: KV_TTL });
   const origin = new URL(request.url).origin;
   return json({ shortUrl: `${origin}/sub?id=${id}`, id, ttl: KV_TTL });
 }
@@ -139,9 +140,14 @@ async function resolveShortLinkParams(
       dedupStrategy: data.dedup_strategy === "identity" ? "identity" as const : params.dedupStrategy,
       profile: typeof data.profile === "string" ? data.profile : params.profile,
     };
-    const refresh = env.SUB_KV.put(params.id, stored, { expirationTtl: KV_TTL });
-    if (ctx) ctx.waitUntil(refresh);
-    else await refresh;
+    const now = Date.now();
+    if (!(typeof data.refreshedAt === "number" && now - data.refreshedAt < SHORT_LINK_REFRESH_INTERVAL_MS)) {
+      const refresh = env.SUB_KV.put(params.id, JSON.stringify({ ...data, refreshedAt: now }), {
+        expirationTtl: KV_TTL,
+      });
+      if (ctx) ctx.waitUntil(refresh);
+      else await refresh;
+    }
     return { params: resolved, isShortLink: true };
   } catch {
     return { params, isShortLink: false };

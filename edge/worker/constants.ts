@@ -1,4 +1,6 @@
 export const KV_TTL = 604800;
+// Rolling short-link TTL renewals are throttled to save KV writes.
+export const SHORT_LINK_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 export const SUBCONVERTER_BACKEND = "https://api.wcc.best/sub";
 export const ACL4SSR_CONFIG_URL =
   "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online.ini";

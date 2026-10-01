@@ -89,9 +89,20 @@ export class SubscriptionStore {
         });
       }
       if (mutation.expected !== (current.present ? current.revision : null)) return new Response(null, { status: 409 });
+      const revision = mutation.value === null ? "" : await hash(mutation.value);
+      // An identical, already-mirrored write would only burn a KV write.
+      if (
+        mutation.value !== null &&
+        !current.dirty &&
+        current.present === 1 &&
+        current.revision === revision &&
+        current.metadata === JSON.stringify(mutation.metadata ?? null)
+      ) {
+        return new Response(null, { status: 204 });
+      }
       // Schedule before committing so a crash cannot leave the KV index unrepaired.
       await this.state.storage.setAlarm(Date.now() + 30_000);
-      this.save(token, mutation.value, mutation.value === null ? "" : await hash(mutation.value), mutation.metadata, true);
+      this.save(token, mutation.value, revision, mutation.metadata, true);
       try { await this.mirror(); } catch { /* The alarm retries the durable pending mirror. */ }
       return new Response(null, { status: 204 });
     });
