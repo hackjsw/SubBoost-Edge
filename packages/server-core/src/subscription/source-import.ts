@@ -45,6 +45,8 @@ export type SourceImportRequest = {
   url: string;
   userinfoUrl?: string;
   userinfoUserAgent?: string;
+  /** Fetch the subscription with only this client identifier (some panels allow-list clients). */
+  userAgent?: string;
 };
 
 export type SourceImportSuccess = {
@@ -514,9 +516,12 @@ export async function importSubscriptionFromUrl(
     0,
     DEFAULT_USERINFO_MAX_BYTES
   );
-  const userAgents = (options.userAgents?.length
-    ? options.userAgents
-    : SUBSCRIPTION_IMPORT_USER_AGENTS
+  const pinnedUserAgent = request.userAgent?.trim().slice(0, 256);
+  const userAgents = (pinnedUserAgent
+    ? [pinnedUserAgent]
+    : options.userAgents?.length
+      ? options.userAgents
+      : SUBSCRIPTION_IMPORT_USER_AGENTS
   )
     .filter((agent): agent is string => typeof agent === "string")
     .map((agent) => agent.trim().slice(0, 256))

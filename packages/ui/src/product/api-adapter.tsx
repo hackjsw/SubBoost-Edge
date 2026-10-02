@@ -10,6 +10,7 @@ export type SourceImportRequest = {
   url: string;
   userinfoUrl?: string;
   userinfoUserAgent?: string;
+  userAgent?: string;
 };
 
 export type SourceImportResponse = {

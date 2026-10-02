@@ -1,12 +1,17 @@
 import type { Metadata } from "next";
 import "@subboost/ui/styles/globals.css";
 import "../src/styles/edge-light.css";
+import "../src/styles/edge-dark.css";
+import "../src/styles/edgesub.css";
+import "../src/styles/generator.css";
+import "../src/styles/login.css";
 import { ConfirmDialogHost } from "@subboost/ui/components/ui/confirm-dialog";
 import { ScrollLockStabilizer } from "@subboost/ui/components/layout/scroll-lock-stabilizer";
 import { Toaster } from "@subboost/ui/components/ui/toaster";
 import { EdgeFooter } from "@edge/components/edge-footer";
 import { EdgeHeader } from "@edge/components/edge-header";
 import { EdgeMobileNav } from "@edge/components/edge-mobile-nav";
+import { THEME_BOOT_SCRIPT } from "@edge/lib/theme";
 
 export const metadata: Metadata = {
   title: "EdgeSub",
@@ -15,17 +20,24 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-  themeColor: "#f4f7f7",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f3f6f5" },
+    { media: "(prefers-color-scheme: dark)", color: "#111316" },
+  ],
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN" className="edgesub-light">
+    // The boot script sets data-theme and the theme class before hydration.
+    <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body className="font-sans">
         <ScrollLockStabilizer />
         <div className="min-h-screen bg-gradient-radial flex flex-col">
           <EdgeHeader />
-          <main className="flex-1 pb-16 md:pb-0">{children}</main>
+          <main className="flex-1">{children}</main>
           <EdgeFooter />
           <EdgeMobileNav />
         </div>

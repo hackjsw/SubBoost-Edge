@@ -1,0 +1,79 @@
+/* Shared SubBoost UI is dark-native; remap its neutral and indigo palette to the
+   EdgeSub "graphite" dark theme with an orange accent so reused sections match the edge-only components. */
+:root.edgesub-dark {
+  color-scheme: dark;
+  --background: #111316;
+  --foreground: #e6e8eb;
+  --card: #181b1f;
+  --card-hover: #1e2227;
+  --border: #2a2f36;
+  --muted: #9aa3ad;
+  --primary: #fb923c;
+  --primary-hover: #fdba74;
+
+  --color-dark: #111316;
+  --color-dark-50: #181b1f;
+  --color-dark-100: #1e2227;
+  --color-dark-200: #2a2f36;
+  --color-dark-300: #363c44;
+
+  --color-primary: #fb923c;
+  --color-primary-50: #fff7ed;
+  --color-primary-100: #ffedd5;
+  --color-primary-200: #fed7aa;
+  --color-primary-300: #fdba74;
+  --color-primary-400: #fb923c;
+  --color-primary-500: #f97316;
+  --color-primary-600: #ea580c;
+  --color-primary-700: #c2410c;
+  --color-primary-800: #9a3412;
+  --color-primary-900: #7c2d12;
+  --color-indigo-100: #ffedd5;
+  --color-indigo-200: #fed7aa;
+  --color-indigo-300: #fdba74;
+  --color-indigo-400: #fb923c;
+  --color-indigo-500: #f97316;
+  --color-indigo-600: #ea580c;
+}
+
+@layer base {
+  html.edgesub-dark * {
+    border-color: rgb(255 255 255 / 8%);
+  }
+}
+
+.edgesub-dark .bg-\[\#141414\],
+.edgesub-dark .bg-\[\#1a1a1a\],
+.edgesub-dark .glass-card,
+.edgesub-dark .glass-card-hover {
+  background-color: #181b1f !important;
+  border-color: #2a2f36 !important;
+}
+
+.edgesub-dark .bg-black\/95,
+.edgesub-dark .bg-black\/90 {
+  background-color: rgb(24 27 31 / 97%) !important;
+}
+
+.edgesub-dark button.bg-primary-500\/20,
+.edgesub-dark a.bg-primary-500\/20,
+.edgesub-dark .btn-primary {
+  background: #f97316 !important;
+  border-color: transparent !important;
+  color: #1c0a00 !important;
+  box-shadow: none;
+}
+
+.edgesub-dark button.bg-primary-500\/20:hover,
+.edgesub-dark a.bg-primary-500\/20:hover,
+.edgesub-dark .btn-primary:hover {
+  background: #fb923c !important;
+}
+
+.edgesub-dark ::selection {
+  background: rgb(251 146 60 / 30%);
+}
+
+.edgesub-dark .custom-scrollbar {
+  scrollbar-color: rgb(255 255 255 / 18%) transparent;
+}

@@ -144,6 +144,10 @@ export function assertPublicHttpUrl(input: string): URL {
   ) {
     throw new Error("禁止访问本机或内网地址");
   }
+  // Workers subrequests cannot target IP literals; Cloudflare answers 403.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.includes(":")) {
+    throw new Error("Cloudflare Workers 无法直接访问 IP 地址形式的订阅，请为订阅服务器绑定域名，或改为粘贴订阅内容");
+  }
 
   return url;
 }

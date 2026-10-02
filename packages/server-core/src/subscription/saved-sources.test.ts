@@ -12,6 +12,7 @@ describe("normalizeSavedSourcesForPersistence", () => {
           useProxyProviders: true,
           userinfoUrl: " https://info.example/user&token=abc ",
           userinfoUserAgent: " LocalAgent/1.0 ",
+          userAgent: " clash-verge/v2.2.3 ",
           subscriptionUserInfo: {
             upload: 1024,
             download: -1,
@@ -33,6 +34,7 @@ describe("normalizeSavedSourcesForPersistence", () => {
         useProxyProviders: true,
         userinfoUrl: "https://info.example/user?token=abc",
         userinfoUserAgent: "LocalAgent/1.0",
+        userAgent: "clash-verge/v2.2.3",
         subscriptionUserInfo: {
           upload: 1024,
           total: 4096,

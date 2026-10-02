@@ -4,6 +4,7 @@ import { HomeSurface, type HomeSurfaceAdapter } from "@subboost/ui/product/home/
 import { createRulesProductApi, type NodeConnectivityResult } from "@subboost/ui/product/api-adapter";
 import { readSourceImportResponse } from "@subboost/ui/product/client-response";
 import { useConfigStore } from "@subboost/ui/store/config-store";
+import { EdgeGeneratorLayout } from "@edge/generator/edge-generator-layout";
 import {
   CLASH_CONVERSION_PROFILES,
   DEFAULT_CLASH_CONVERSION_PROFILE_ID,
@@ -16,6 +17,7 @@ const edgeHomeAdapter: HomeSurfaceAdapter = {
   loginHref: "/login",
   loadSubscription: (id) => fetch(`/api/subscriptions/${encodeURIComponent(id)}`, { cache: "no-store" }),
   templateUploadHref: null,
+  renderLayout: (props) => <EdgeGeneratorLayout {...props} />,
   productApi: {
     connectivity: {
       testNodes: async (nodes) => {

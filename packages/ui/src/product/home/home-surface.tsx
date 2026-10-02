@@ -6,7 +6,7 @@ import { setConfigDraftUserScope, useConfigStore } from "@subboost/ui/store/conf
 import { consumeAuthConfigHandoff } from "@subboost/ui/store/config-store/auth-handoff";
 import { useUserStore, type User } from "@subboost/ui/store/user-store";
 import { consumeEditingSubscriptionHandoff, useUIStore } from "@subboost/ui/store/ui-store";
-import { HomeLayout } from "@subboost/ui/product/home/home-layout";
+import { HomeLayout, type HomeLayoutProps } from "@subboost/ui/product/home/home-layout";
 import { useHomeActions } from "@subboost/ui/product/home/use-home-actions";
 import { useCleanNewSubscriptionIntent } from "@subboost/ui/product/home/use-clean-new-subscription-intent";
 import { useEditingSubscriptionLoader } from "@subboost/ui/product/home/use-editing-subscription-loader";
@@ -45,6 +45,8 @@ export type HomeSurfaceAdapter = {
   renderNotice?: (context: { user: User | null; showAiColumn: boolean }) => React.ReactNode;
   renderAnnouncement?: (context: AnnouncementContext) => React.ReactNode;
   renderSaveRequirementDialog?: (props: SaveRequirementDialogProps) => React.ReactNode;
+  // Replaces the default layout while keeping all home state wiring.
+  renderLayout?: (props: HomeLayoutProps) => React.ReactNode;
 };
 
 type Props = {
@@ -200,35 +202,35 @@ function HomeSurfaceInner({ adapter }: Props) {
     generateConfig,
   });
 
-  return (
-    <HomeLayout
-      brandName={adapter?.brandName}
-      brandDescription={adapter?.brandDescription}
-      supportsV2rayN={adapter?.supportsV2rayN}
-      showAiColumn={showAiColumn}
-      user={user}
-      authChecked={authChecked}
-      editingSubscription={editingSubscription}
-      isLoadingEditingSubscription={isLoadingEditingSubscription}
-      editSubscriptionId={editSubscriptionId}
-      generatedYaml={generatedYaml}
-      generatedYamlError={generatedYamlError}
-      configLoading={configLoading}
-      hasValidSources={hasValidSources}
-      handleGenerate={handleGenerate}
-      handleDownload={handleDownload}
-      subscription={subscription}
-      noticeSlot={adapter?.renderNotice?.({ user, showAiColumn })}
-      renderAnnouncement={adapter?.renderAnnouncement}
-      saveRequirementSlot={adapter?.renderSaveRequirementDialog?.({
-        open: subscription.saveRequirementDialog,
-        onOpenChange: subscription.setSaveRequirementDialog,
-        onAccept: subscription.handleAcceptSaveRequirement,
-      })}
-      templateUploadHref={adapter?.templateUploadHref}
-      onTemplateUploadOpen={adapter?.onTemplateUploadOpen}
-    />
-  );
+  const layoutProps: HomeLayoutProps = {
+    brandName: adapter?.brandName,
+    brandDescription: adapter?.brandDescription,
+    supportsV2rayN: adapter?.supportsV2rayN,
+    showAiColumn,
+    user,
+    authChecked,
+    editingSubscription,
+    isLoadingEditingSubscription,
+    editSubscriptionId,
+    generatedYaml,
+    generatedYamlError,
+    configLoading,
+    hasValidSources,
+    handleGenerate,
+    handleDownload,
+    subscription,
+    noticeSlot: adapter?.renderNotice?.({ user, showAiColumn }),
+    renderAnnouncement: adapter?.renderAnnouncement,
+    saveRequirementSlot: adapter?.renderSaveRequirementDialog?.({
+      open: subscription.saveRequirementDialog,
+      onOpenChange: subscription.setSaveRequirementDialog,
+      onAccept: subscription.handleAcceptSaveRequirement,
+    }),
+    templateUploadHref: adapter?.templateUploadHref,
+    onTemplateUploadOpen: adapter?.onTemplateUploadOpen,
+  };
+
+  return adapter?.renderLayout ? <>{adapter.renderLayout(layoutProps)}</> : <HomeLayout {...layoutProps} />;
 }
 
 export function HomeSurface({ adapter }: Props) {

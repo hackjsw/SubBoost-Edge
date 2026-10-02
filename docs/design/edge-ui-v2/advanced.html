@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EdgeSub · 生成器 · 自定义展开（设计稿 v2）</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="theme-tech.css">
+<style>
+  .summary { align-items: center; gap: 10px; padding: 12px 14px; margin: 0 0 12px; }
+  .summary b { font-size: 15px; }
+  .summary .sp { flex: 1; }
+  .mlink { margin-left: auto; }
+  .src-new { border-style: dashed; border-color: var(--brand); }
+  .src-new .top { background: var(--brand-soft); color: var(--brand-strong); border-bottom-style: dashed; border-bottom-color: #b7dfd8; }
+  .src-new .tip { color: var(--muted); font-size: 12px; }
+  @media (max-width: 640px) { .src-new .tip { display: none; } }
+</style>
+</head>
+<body>
+<header class="hdr">
+  <div class="in">
+    <div class="logo"><span data-mark style="width:32px;height:32px;display:inline-block"></span>EdgeSub</div>
+    <nav class="nav">
+      <a href="home.html" class="on"><i data-i="wand"></i>生成器</a>
+      <a href="dashboard.html"><i data-i="list"></i>我的订阅</a>
+    </nav>
+    <div class="sp"></div>
+    <span class="host">sub.cces.us.ci</span>
+    <a class="btn ghost sm only-m mlink" href="dashboard.html"><i data-i="list"></i>我的订阅</a>
+    <button class="btn ghost sm only-d"><i data-i="logout"></i>退出</button>
+  </div>
+</header>
+
+<main class="page">
+  <div class="ph">
+    <div>
+      <h1>新建订阅</h1>
+      <p>导入节点 → 选择规则 → 保存得到订阅链接</p>
+    </div>
+  </div>
+
+  <div class="gen rail-layout">
+    <section class="card">
+      <div class="step">
+        <div class="sh"><span class="n done"><i data-i="check"></i></span><h3>订阅来源</h3><span class="aux">2 个来源 · 共 42 个节点</span></div>
+
+        <div class="src">
+          <div class="top">
+            <span class="badge brand"><i data-i="link"></i>订阅链接</span>
+            <span class="ok-line"><i data-i="check"></i>已解析 38 个节点 · 流量 128/500 GB</span>
+            <span class="sp"></span>
+            <button class="btn icon ghost sm" title="拖动排序"><i data-i="grip"></i></button>
+            <button class="btn icon ghost sm" title="移除"><i data-i="x"></i></button>
+          </div>
+          <div class="ta">https://example.com/api/v1/client/subscribe?token=••••••••••••</div>
+        </div>
+
+        <div class="src">
+          <div class="top">
+            <span class="badge blue"><i data-i="globe"></i>节点链接 · 4 条</span>
+            <span class="ok-line"><i data-i="check"></i>全部有效</span>
+            <span class="sp"></span>
+            <button class="btn icon ghost sm"><i data-i="grip"></i></button>
+            <button class="btn icon ghost sm"><i data-i="x"></i></button>
+          </div>
+          <div class="ta">vless://…@hk1.example.com:443#香港 01<br>trojan://…@jp2.example.com:443#日本 02<br><span style="color:var(--faint)">… 还有 2 条</span></div>
+        </div>
+
+        <div class="src src-new">
+          <div class="top"><i data-i="plus"></i><b>添加来源</b><span class="sp"></span><span class="tip">粘贴后自动识别类型，并在下方自动留出新的空白框</span></div>
+          <div class="ta ph" style="min-height:56px">粘贴订阅链接、Clash YAML 或节点链接（vless:// trojan:// ss:// …）<br>也可以把 .yaml 文件拖到这里</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="sh"><span class="n">2</span><h3>规则方案</h3><span class="aux only-d">选一个模板即可，需要时再自定义</span></div>
+        <div class="group-l">内置规则 · 本地生成</div>
+        <div class="opts">
+          <div class="opt"><b>精简版</b><span>7 代理组 · 5 规则集</span></div>
+          <div class="opt on"><b>标准版</b><span>14 代理组 · 15 规则集</span></div>
+          <div class="opt"><b>完整版</b><span>20 代理组 · 40 规则集</span></div>
+        </div>
+        <div class="group-l">ACL4SSR 在线模板 · 经转换服务生成</div>
+        <div class="chips">
+          <span class="chip">标准版</span><span class="chip">精简版</span><span class="chip">完整版</span><span class="chip">AI 版</span><span class="chip">多地区版</span><span class="chip">无测速版</span><span class="chip">无拦截版</span>
+        </div>
+        <div class="custom-toggle on">
+          <div class="ic" style="width:32px;height:32px;border-radius:8px;display:grid;place-items:center;background:var(--surface);color:var(--brand)"><i data-i="settings"></i></div>
+          <div class="tx"><b>自定义</b><span>在“标准版”基础上调整 · 切换模板会重置分流代理组和自定义规则</span></div>
+          <span class="switch on"></span>
+        </div>
+        <div class="acc">
+          <div class="acc-i open changed">
+            <div class="acc-h"><span class="ic"><i data-i="list"></i></span><b>节点管理</b><span class="mod-tag">已修改</span><span class="sum">42 个节点 · 已排除 3 · 改名 2</span><span class="sp"></span><i data-i="chevron" class="chev"></i></div>
+            <div class="acc-b">
+              <div class="tools">
+                <div class="search"><i data-i="search"></i>搜索节点，支持正则</div>
+                <button class="btn sm"><i data-i="refresh"></i>测试连通性</button>
+                <button class="btn sm"><i data-i="edit"></i>批量改名</button>
+                <button class="btn sm only-d">监听端口</button>
+              </div>
+              <div class="nodes">
+                <div class="node"><i data-i="grip" class="grip"></i><span class="nm">香港 01 · IPLC<small>原名 HK-01</small></span><span class="proto">vless</span><span class="lat ok">38 ms</span><span class="na"><button class="btn icon ghost" title="改名"><i data-i="edit"></i></button><button class="btn icon ghost" title="排除"><i data-i="x"></i></button></span></div>
+                <div class="node"><i data-i="grip" class="grip"></i><span class="nm">香港 02</span><span class="proto">trojan</span><span class="lat ok">52 ms</span><span class="na"><button class="btn icon ghost"><i data-i="edit"></i></button><button class="btn icon ghost"><i data-i="x"></i></button></span></div>
+                <div class="node"><i data-i="grip" class="grip"></i><span class="nm">日本 01 · 东京</span><span class="proto">hy2</span><span class="lat slow">186 ms</span><span class="na"><button class="btn icon ghost"><i data-i="edit"></i></button><button class="btn icon ghost"><i data-i="x"></i></button></span></div>
+                <div class="node"><i data-i="grip" class="grip"></i><span class="nm">新加坡 03</span><span class="proto">ss</span><span class="lat bad">超时</span><span class="na"><button class="btn icon ghost"><i data-i="edit"></i></button><button class="btn icon ghost"><i data-i="x"></i></button></span></div>
+                <div class="node off"><i data-i="grip" class="grip"></i><span class="nm">剩余流量：372 GB</span><span class="proto">info</span><span class="lat"></span><span class="na"><button class="btn sm ghost" style="color:var(--brand-strong)">恢复</button></span></div>
+                <div class="list-more">显示全部 42 个节点（已排除 3 个）</div>
+              </div>
+            </div>
+          </div>
+          <div class="acc-i">
+            <div class="acc-h"><span class="ic"><i data-i="link"></i></span><b>中转代理组</b><span class="sum">未设置 · 让落地节点经由中转节点连接</span><span class="sp"></span><i data-i="chevron" class="chev"></i></div>
+          </div>
+          <div class="acc-i open changed">
+            <div class="acc-h"><span class="ic"><i data-i="layers"></i></span><b>分流代理组</b><span class="mod-tag">已修改</span><span class="sum">已启用 15 / 36 · 比模板多 1 个</span><span class="sp"></span><i data-i="chevron" class="chev"></i></div>
+            <div class="acc-b">
+              <div class="mods">
+                <span class="mod on"><span class="ck"><i data-i="check"></i></span>节点选择</span>
+                <span class="mod on"><span class="ck"><i data-i="check"></i></span>自动选择</span>
+                <span class="mod on"><span class="ck"><i data-i="check"></i></span>AI 服务</span>
+                <span class="mod on"><span class="ck"><i data-i="check"></i></span>谷歌服务</span>
+                <span class="mod on"><span class="ck"><i data-i="check"></i></span>国外媒体</span>
+                <span class="mod on"><span class="ck"><i data-i="check"></i></span>电报消息</span>
+                <span class="mod on"><span class="ck"><i data-i="check"></i></span>苹果服务</span>
+                <span class="mod"><span class="ck"></span>游戏平台</span>
+                <span class="mod on"><span class="ck"><i data-i="check"></i></span>微软服务</span>
+                <span class="mod"><span class="ck"></span>哔哩哔哩</span>
+                <span class="mod on"><span class="ck"><i data-i="check"></i></span>广告拦截</span>
+                <span class="mod added"><i data-i="plus"></i>自定义分组</span>
+              </div>
+              <div class="note-line"><i data-i="eye"></i>显示 12 / 36 个常用分组 · <a style="color:var(--brand-strong);font-weight:600">全部分组</a></div>
+            </div>
+          </div>
+          <div class="acc-i changed">
+            <div class="acc-h"><span class="ic"><i data-i="file"></i></span><b>规则</b><span class="mod-tag">已修改</span><span class="sum">1,203 条 · 自定义 2 条 · 规则库 1,596 个规则集</span><span class="sp"></span><i data-i="chevron" class="chev"></i></div>
+          </div>
+          <div class="acc-i">
+            <div class="acc-h"><span class="ic"><i data-i="globe"></i></span><b>DNS 与基础设置</b><span class="sum">Fake-IP · 默认端口 7890 · IPv6 关闭</span><span class="sp"></span><i data-i="chevron" class="chev"></i></div>
+          </div>
+        </div>
+        <div class="note-line"><i data-i="alert"></i>选择 ACL4SSR 模板时，分流代理组和规则由远程模板决定，这两项自定义会停用。</div>
+      </div>
+
+    </section>
+
+    <aside class="card rail only-d">
+      <div class="sec">
+        <div class="sh"><span class="n">3</span><h3>保存</h3><span class="aux">随时可保存</span></div>
+        <div class="mini">
+          <div><b>42</b><span>节点</span></div>
+          <div><b>14</b><span>代理组</span></div>
+          <div><b>1,203</b><span>规则</span></div>
+        </div>
+        <div class="regions"><span>香港<b>12</b></span><span>日本<b>10</b></span><span>新加坡<b>8</b></span><span>美国<b>6</b></span><span>其他<b>6</b></span></div>
+        <div class="note"><i data-i="alert"></i>2 个重复节点已自动去重</div>
+        <div class="views"><a><i data-i="file"></i>查看 YAML</a><a><i data-i="layers"></i>关系图</a></div>
+      </div>
+      <div class="sec fields">
+        <div><label>订阅名称</label><div class="input">主力机场 · 日常</div></div>
+        <div><label>自动更新</label><div class="input">每 24 小时<span class="sp"></span><i data-i="chevron"></i></div></div>
+        <div class="help">名称默认取自第一个订阅来源；自动更新每 6 小时批量执行，失败时继续提供上次成功的配置。</div>
+      </div>
+      <div class="sec">
+        <button class="btn pri lg"><i data-i="link"></i>保存并获取订阅链接</button>
+        <div class="dl">
+          <button class="btn"><i data-i="download"></i>Clash</button>
+          <button class="btn"><i data-i="download"></i>v2rayN</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="card summary only-m" style="margin-top:12px">
+    <i data-i="eye"></i><b style="white-space:nowrap">42 个节点</b><span style="color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">14 代理组 · 香港 12 · 日本 10</span><span class="sp"></span><span style="color:var(--brand-strong);font-weight:600;white-space:nowrap">预览 ›</span>
+  </div>
+</main>
+
+<div class="bottombar">
+  <div class="meta-line"><b>主力机场 · 日常</b>· 每 24 小时自动更新<span class="edit"><i data-i="edit"></i>修改</span></div>
+  <div class="btns">
+    <button class="btn" style="flex:0 0 52px" title="下载配置"><i data-i="download"></i></button>
+    <button class="btn pri"><i data-i="link"></i>保存并获取订阅链接</button>
+  </div>
+</div>
+<script src="icons.js"></script>
+</body>
+</html>

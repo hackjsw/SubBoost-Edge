@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EdgeSub · 预览抽屉 · YAML（设计稿 v2）</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="theme-tech.css">
+</head>
+<body>
+<iframe class="behind" src="home.html" title="背景：生成器"></iframe>
+<div class="scrim side-scrim">
+  <section class="drawer" role="dialog" aria-labelledby="t">
+    <div class="dh">
+      <div><h2 id="t">配置预览</h2><div class="sub">主力机场 · 日常 · 标准版 · 1,486 行 · 86 KB</div></div>
+      <span class="sp"></span>
+      <div class="seg"><button>关系图</button><button class="on">YAML</button></div>
+      <button class="btn icon ghost" title="关闭"><i data-i="x"></i></button>
+    </div>
+    <div class="bar">
+      <div class="jump">
+        <a>基础与 DNS <span>1</span></a>
+        <a class="on">proxies <span>42</span></a>
+        <a>proxy-groups <span>14</span></a>
+        <a>rule-providers <span>15</span></a>
+        <a>rules <span>1,203</span></a>
+      </div>
+      <span class="sp"></span>
+      <div class="search" style="width:200px"><i data-i="search"></i><span style="color:var(--ink)">香港</span><span style="margin-left:auto;font-size:12px">12 处</span></div>
+    </div>
+    <div class="bar" style="background:var(--surface)">
+      <span class="toggle-line"><span class="switch on"></span>隐藏密码、UUID 等敏感信息</span>
+      <span class="sp"></span>
+      <span style="font-size:12px;color:var(--muted)">只读预览；复制和下载得到的是完整配置</span>
+    </div>
+    <div class="body">
+      <div class="code">
+<div class="sect"><span class="k">proxies</span>:</div>
+<div>  - <span class="k">name</span>: <span class="s"><span class="hit">香港</span> 01 · IPLC</span></div>
+<div>    <span class="k">type</span>: <span class="s">vless</span></div>
+<div>    <span class="k">server</span>: <span class="s">hk1.example.com</span></div>
+<div>    <span class="k">port</span>: <span class="n">443</span></div>
+<div>    <span class="k">uuid</span>: <span class="mask">•••••••• 已隐藏</span></div>
+<div>    <span class="k">tls</span>: <span class="n">true</span></div>
+<div>    <span class="k">network</span>: <span class="s">ws</span></div>
+<div>    <span class="k">ws-opts</span>: { <span class="k">path</span>: <span class="s">/</span> }</div>
+<div>  - <span class="k">name</span>: <span class="s"><span class="hit">香港</span> 02</span></div>
+<div>    <span class="k">type</span>: <span class="s">trojan</span></div>
+<div>    <span class="k">server</span>: <span class="s">hk2.example.com</span></div>
+<div>    <span class="k">port</span>: <span class="n">443</span></div>
+<div>    <span class="k">password</span>: <span class="mask">•••••••• 已隐藏</span></div>
+<div>    <span class="k">sni</span>: <span class="s">hk2.example.com</span></div>
+<div>  - <span class="k">name</span>: <span class="s">日本 01 · 东京</span></div>
+<div>    <span class="k">type</span>: <span class="s">hysteria2</span></div>
+<div>    <span class="k">server</span>: <span class="s">jp1.example.com</span></div>
+<div>    <span class="k">port</span>: <span class="n">443</span></div>
+<div>    <span class="k">password</span>: <span class="mask">•••••••• 已隐藏</span></div>
+<div>  <span class="c"># … 还有 38 个节点</span></div>
+<div class="sect"><span class="k">proxy-groups</span>:</div>
+<div>  - <span class="k">name</span>: <span class="s">谷歌服务</span></div>
+<div>    <span class="k">type</span>: <span class="s">select</span></div>
+<div>    <span class="k">proxies</span>: [<span class="s">自动选择</span>, <span class="s"><span class="hit">香港</span> 01 · IPLC</span>, <span class="s"><span class="hit">香港</span> 02</span>, <span class="s">日本 01 · 东京</span>, …]</div>
+<div>  - <span class="k">name</span>: <span class="s">自动选择</span></div>
+<div>    <span class="k">type</span>: <span class="s">url-test</span></div>
+<div>    <span class="k">url</span>: <span class="s">https://www.gstatic.com/generate_204</span></div>
+<div>    <span class="k">interval</span>: <span class="n">300</span></div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="btn"><i data-i="copy"></i>复制 YAML</button>
+      <button class="btn"><i data-i="download"></i>下载 Clash</button>
+      <span class="sp" style="flex:1"></span>
+      <span style="color:var(--muted);font-size:13px">需要修改时，在“自定义”里调整，预览会同步更新</span>
+    </div>
+  </section>
+</div>
+<script src="icons.js"></script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EdgeSub · 订阅来源的各种状态（设计稿 v2）</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="theme-tech.css">
+<style>
+  .wrap { max-width: 760px; margin: 0 auto; padding: 28px 24px 60px; }
+  .state-l { margin: 22px 0 8px; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .3px; }
+  .typesel { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 12px; font-weight: 600; }
+  .typesel.warn { border-color: var(--warn); background: var(--warn-soft); color: var(--warn-ink); }
+  .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--brand-line); border-top-color: var(--brand); }
+  .src.err { border-color: var(--danger-line); }
+  .src.err .top { background: var(--danger-soft); border-bottom-color: var(--danger-line); }
+  .src.amb { border-color: var(--warn); }
+  .src.amb .top { background: var(--warn-soft); border-bottom-color: var(--line); }
+  .fix { padding: 10px 12px 12px; border-top: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+  .fix p { margin: 0 0 8px; color: var(--ink); }
+  .fix p.muted { color: var(--muted); font-size: 12px; margin-top: 8px; margin-bottom: 0; }
+  .fix .acts { flex-wrap: wrap; }
+  .err-t { color: var(--danger); font-weight: 600; }
+  .amb-t { color: var(--warn-ink); font-weight: 600; }
+  .ua { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .ua span { height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-strong); display: inline-flex; align-items: center; font-size: 12px; background: var(--surface); }
+  .ua span.on { border-color: var(--brand); color: var(--brand-strong); background: var(--brand-soft); font-weight: 600; }
+  .menu.static { position: static; width: 220px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1 style="margin:0;font-size:22px">订阅来源的各种状态</h1>
+  <p style="margin:6px 0 0;color:var(--muted)">链接类型先按格式自动判断；判断不了或拉取失败时，卡片上直接给出原因和可操作的解决办法。</p>
+
+  <div class="state-l">① 识别中：URL 一律先当作订阅链接，拉取后再按内容判断格式</div>
+  <div class="src">
+    <div class="top"><span class="spin"></span><span>正在拉取订阅…</span><span class="sp"></span><span class="typesel">自动识别 <i data-i="chevron"></i></span></div>
+    <div class="ta">https://sub.example.com/api/v1/client/subscribe?token=••••••••</div>
+  </div>
+
+  <div class="state-l">② 成功：显示按内容识别出的格式，可随时手动改类型</div>
+  <div class="src">
+    <div class="top"><span class="badge brand"><i data-i="link"></i>订阅链接</span><span class="ok-line"><i data-i="check"></i>Clash 配置 · 42 个节点 · 128/500 GB</span><span class="sp"></span><span class="typesel">自动识别 <i data-i="chevron"></i></span></div>
+    <div class="ta">https://sub.example.com/clash/••••••••</div>
+  </div>
+
+  <div class="state-l">③ 判断不了：粘贴的文本不像任何已知格式，请用户选择类型</div>
+  <div class="src amb">
+    <div class="top"><i data-i="alert"></i><span class="amb-t">无法判断这段内容的类型</span><span class="sp"></span><span class="typesel warn">选择类型 <i data-i="chevron"></i></span></div>
+    <div class="ta">c3M6Ly9ZV1Z6TFRJMU5pMW5ZMjA2Y0dGemMzZHZjbVE9QGhrMS5leGFtcGxlLmNvbTo4Mzg4I...</div>
+    <div class="fix">
+      <p>看起来像 Base64 编码的内容，可以试试：</p>
+      <nav class="menu static">
+        <a class="hl"><i data-i="globe"></i>Base64 节点列表<span class="kbd">推荐</span></a>
+        <a><i data-i="file"></i>Clash YAML</a>
+        <a><i data-i="link"></i>订阅链接</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="state-l">④ 纯 IP 地址的订阅：粘贴时就提示，不等到 403 才报错</div>
+  <div class="src err">
+    <div class="top"><i data-i="alert"></i><span class="err-t">Cloudflare 无法访问 IP 地址形式的订阅</span><span class="sp"></span><span class="typesel">订阅链接 <i data-i="chevron"></i></span></div>
+    <div class="ta">https://179.255.115.32:2096/clash/••••••••</div>
+    <div class="fix">
+      <p>Cloudflare Workers 只能请求域名，不能直接请求 IP 地址（会返回 403）。可以选择：</p>
+      <div class="acts">
+        <button class="btn sm pri"><i data-i="file"></i>改为粘贴订阅内容</button>
+        <button class="btn sm"><i data-i="globe"></i>如何给服务器绑定域名</button>
+        <button class="btn sm ghost">仍然尝试</button>
+      </div>
+      <p class="muted">“粘贴订阅内容”：在浏览器打开这个链接，复制全部内容粘贴进来即可生成配置，但这个来源不能自动更新。需要自动更新时，请给订阅服务器绑定域名并使用域名证书。</p>
+    </div>
+  </div>
+
+  <div class="state-l">⑤ 服务器拒绝（401 / 403）：多半是按客户端类型放行，可换一种客户端标识重试</div>
+  <div class="src err">
+    <div class="top"><i data-i="alert"></i><span class="err-t">订阅服务器拒绝访问（HTTP 403）</span><span class="sp"></span><span class="typesel">订阅链接 <i data-i="chevron"></i></span></div>
+    <div class="ta">https://panel.example.com/sub/••••••••</div>
+    <div class="fix">
+      <p>已依次用 v2rayN、mihomo、浏览器标识尝试，都被拒绝。可以指定一个客户端标识再试：</p>
+      <div class="ua"><span>mihomo</span><span class="on">Clash Verge</span><span>v2rayN</span><span>Shadowrocket</span><span>自定义…</span></div>
+      <div class="acts" style="margin-top:10px">
+        <button class="btn sm pri"><i data-i="refresh"></i>用 Clash Verge 标识重试</button>
+        <button class="btn sm"><i data-i="file"></i>改为粘贴订阅内容</button>
+      </div>
+      <p class="muted">仍然失败时，可能是机场限制了访问地区或订阅已失效，请在机场后台确认。</p>
+    </div>
+  </div>
+
+  <div class="state-l">⑥ 拉取成功但没有节点</div>
+  <div class="src amb">
+    <div class="top"><i data-i="alert"></i><span class="amb-t">订阅返回了内容，但没有可用节点</span><span class="sp"></span><span class="typesel">订阅链接 <i data-i="chevron"></i></span></div>
+    <div class="ta">https://sub.example.com/link/••••••••</div>
+    <div class="fix"><p style="margin:0">返回的是网页或说明文字（例如“流量已用完”“请续费”），请检查订阅是否到期。<a style="color:var(--brand-strong);font-weight:600;margin-left:6px">查看返回内容</a></p></div>
+  </div>
+</main>
+<script src="icons.js"></script>
+</body>
+</html>

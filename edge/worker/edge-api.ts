@@ -457,6 +457,7 @@ function buildRefreshCallbacks() {
             url: source.content,
             ...(source.userinfoUrl ? { userinfoUrl: source.userinfoUrl } : {}),
             ...(source.userinfoUserAgent ? { userinfoUserAgent: source.userinfoUserAgent } : {}),
+            ...(source.userAgent ? { userAgent: source.userAgent } : {}),
           },
           {
             timeoutMs: 15000,
@@ -680,7 +681,7 @@ export function handleHealth(request: Request, env: WorkerEnv): Response {
   return json({
     status: "ok",
     service: "edgesub",
-    version: "2.6.0-edge.6",
+    version: "2.6.0-edge.7",
     kv: Boolean(env.SUB_KV),
     auth: Boolean(env.EDGE_ADMIN_PASSWORD?.trim()),
   });
@@ -704,6 +705,9 @@ export async function handleSourceImport(request: Request): Promise<Response> {
           : {}),
         ...(typeof body?.userinfoUserAgent === "string" && body.userinfoUserAgent.trim()
           ? { userinfoUserAgent: body.userinfoUserAgent.trim().slice(0, 200) }
+          : {}),
+        ...(typeof body?.userAgent === "string" && body.userAgent.trim()
+          ? { userAgent: body.userAgent.trim().slice(0, 200) }
           : {}),
       },
       {
@@ -808,6 +812,35 @@ function buildStoredSubscription(
   return { record };
 }
 
+// Nodes the user removed in the editor stay in the record but are not served.
+function activeNodeCount(record: StoredSubscription): number {
+  const deleted = new Set<string>();
+  const { deletedNodeNames, deletedNodes } = record.config;
+  if (Array.isArray(deletedNodeNames)) {
+    for (const name of deletedNodeNames) if (typeof name === "string") deleted.add(name.trim());
+  }
+  if (Array.isArray(deletedNodes)) {
+    for (const item of deletedNodes) {
+      if (isRecord(item) && typeof item.originName === "string") deleted.add(item.originName.trim());
+    }
+  }
+  if (!deleted.size) return record.nodes.length;
+  return record.nodes.filter((node) => {
+    const origin = (node as { originName?: unknown }).originName;
+    return !deleted.has((typeof origin === "string" && origin.trim()) || node.name);
+  }).length;
+}
+
+function publicUsage(info: SubscriptionResponseInfo) {
+  const { upload, download, total, expire } = info;
+  if ([upload, download, total, expire].every((value) => value === undefined)) return null;
+  return {
+    usedBytes: upload !== undefined || download !== undefined ? (upload ?? 0) + (download ?? 0) : null,
+    totalBytes: total ?? null,
+    expireAt: expire ? new Date(expire * 1000).toISOString() : null,
+  };
+}
+
 function publicSubscription(token: string, record: StoredSubscription, origin: string) {
   return {
     id: token,
@@ -833,6 +866,9 @@ function publicSubscription(token: string, record: StoredSubscription, origin: s
     createdAt: record.createdAt,
     persistent: true,
     nextUpdateAt: record.nextUpdateAt ?? null,
+    template: typeof record.config.template === "string" ? record.config.template : null,
+    nodeCount: activeNodeCount(record),
+    usage: publicUsage(record.subscriptionInfo),
   };
 }
 

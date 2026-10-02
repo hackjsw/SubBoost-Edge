@@ -40,7 +40,7 @@ type EditingSubscription = {
   smartNodeMatchingEnabled: boolean;
 };
 
-type SubscriptionLinkState = {
+export type SubscriptionLinkState = {
   subscriptionDialog: boolean;
   setSubscriptionDialog: (open: boolean) => void;
   subscriptionName: string;
@@ -101,6 +101,8 @@ type Props = {
   templateUploadHref?: string | null;
   onTemplateUploadOpen?: () => void;
 };
+
+export type HomeLayoutProps = Props;
 
 const DESKTOP_PANEL_MIN_HEIGHT_CLASS = "lg:min-h-[39rem]";
 const DESKTOP_PANEL_CONTENT_MIN_HEIGHT_CLASS = "lg:min-h-[30rem]";

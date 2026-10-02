@@ -426,6 +426,9 @@ export function useSubscriptionLink({
                   ...(s.type === "url" && typeof s.userinfoUserAgent === "string" && s.userinfoUserAgent.trim()
                     ? { userinfoUserAgent: s.userinfoUserAgent.trim() }
                     : {}),
+                  ...(s.type === "url" && typeof s.userAgent === "string" && s.userAgent.trim()
+                    ? { userAgent: s.userAgent.trim() }
+                    : {}),
                   ...(typeof s.lastParsedTag === "string" && s.lastParsedTag.trim()
                     ? { lastParsedTag: s.lastParsedTag.trim() }
                     : {}),

@@ -9,26 +9,26 @@
 
   /* The shared SubBoost UI uses white as its dark-theme ink token. */
   --color-white: #172321;
-  --color-primary-50: #edf9f7;
-  --color-primary-100: #d2f1eb;
-  --color-primary-200: #a9e1d7;
-  --color-primary-300: #74cabc;
-  --color-primary-400: #38aa9a;
-  --color-primary-500: #087f70;
-  --color-primary-600: #05665b;
-  --color-primary-700: #075249;
-  --color-primary-800: #08423c;
-  --color-primary-900: #073732;
-  --color-indigo-50: #edf9f7;
-  --color-indigo-100: #d2f1eb;
-  --color-indigo-200: #a9e1d7;
-  --color-indigo-300: #74cabc;
-  --color-indigo-400: #168d7e;
-  --color-indigo-500: #087f70;
-  --color-indigo-600: #05665b;
-  --color-indigo-700: #075249;
-  --color-indigo-800: #08423c;
-  --color-indigo-900: #073732;
+  --color-primary-50: #fff7ed;
+  --color-primary-100: #ffedd5;
+  --color-primary-200: #fed7aa;
+  --color-primary-300: #fdba74;
+  --color-primary-400: #fb923c;
+  --color-primary-500: #ea580c;
+  --color-primary-600: #c2410c;
+  --color-primary-700: #9a3412;
+  --color-primary-800: #7c2d12;
+  --color-primary-900: #431407;
+  --color-indigo-50: #fff7ed;
+  --color-indigo-100: #ffedd5;
+  --color-indigo-200: #fed7aa;
+  --color-indigo-300: #fdba74;
+  --color-indigo-400: #fb923c;
+  --color-indigo-500: #ea580c;
+  --color-indigo-600: #c2410c;
+  --color-indigo-700: #9a3412;
+  --color-indigo-800: #7c2d12;
+  --color-indigo-900: #431407;
 }
 
 html.edgesub-light body {
@@ -82,17 +82,17 @@ html.edgesub-light body {
 .edgesub-light button.bg-primary-500\/20,
 .edgesub-light a.bg-primary-500\/20,
 .edgesub-light .btn-primary {
-  background-color: #087f70 !important;
-  border-color: #087f70 !important;
+  background-color: #ea580c !important;
+  border-color: #ea580c !important;
   color: #ffffff !important;
-  box-shadow: 0 5px 14px rgb(8 127 112 / 16%);
+  box-shadow: 0 5px 14px rgb(234 88 12 / 16%);
 }
 
 .edgesub-light button.bg-primary-500\/20:hover,
 .edgesub-light a.bg-primary-500\/20:hover,
 .edgesub-light .btn-primary:hover {
-  background-color: #05665b !important;
-  border-color: #05665b !important;
+  background-color: #c2410c !important;
+  border-color: #c2410c !important;
 }
 
 .edgesub-light .text-indigo-100,
@@ -102,7 +102,7 @@ html.edgesub-light body {
 .edgesub-light .text-indigo-300\/75,
 .edgesub-light .text-primary-200,
 .edgesub-light .text-primary-300 {
-  color: #05665b !important;
+  color: #c2410c !important;
 }
 
 .edgesub-light .text-emerald-100,
@@ -142,6 +142,72 @@ html.edgesub-light body {
   color: #315fcb !important;
 }
 
+/* Shared UI uses pale 100-400 text shades (badges, counts, status) that vanish on light surfaces. */
+.edgesub-light .text-blue-200,
+.edgesub-light .text-blue-200\/90,
+.edgesub-light .text-blue-300 {
+  color: #1d4ed8 !important;
+}
+
+.edgesub-light .text-cyan-200,
+.edgesub-light .text-cyan-400 {
+  color: #0e7490 !important;
+}
+
+.edgesub-light .text-emerald-400 {
+  color: #08745f !important;
+}
+
+.edgesub-light .text-green-200,
+.edgesub-light .text-green-200\/70,
+.edgesub-light .text-green-200\/90,
+.edgesub-light .text-green-300,
+.edgesub-light .text-green-300\/70,
+.edgesub-light .text-green-400 {
+  color: #15803d !important;
+}
+
+.edgesub-light .text-indigo-400,
+.edgesub-light .text-indigo-400\/70,
+.edgesub-light .text-indigo-400\/80 {
+  color: #c2410c !important;
+}
+
+.edgesub-light .text-orange-200,
+.edgesub-light .text-orange-300,
+.edgesub-light .text-orange-300\/70,
+.edgesub-light .text-orange-400 {
+  color: #c2410c !important;
+}
+
+.edgesub-light .text-pink-200,
+.edgesub-light .text-pink-400 {
+  color: #be185d !important;
+}
+
+.edgesub-light .text-purple-200 {
+  color: #7e22ce !important;
+}
+
+.edgesub-light .text-sky-100 {
+  color: #0369a1 !important;
+}
+
+.edgesub-light .text-teal-200,
+.edgesub-light .text-teal-400 {
+  color: #0f766e !important;
+}
+
+.edgesub-light .text-violet-200,
+.edgesub-light .text-violet-400 {
+  color: #6d28d9 !important;
+}
+
+.edgesub-light .text-yellow-300,
+.edgesub-light .text-yellow-400 {
+  color: #a16207 !important;
+}
+
 .edgesub-light [class~="hover:bg-white/5"]:hover,
 .edgesub-light [class~="hover:bg-white/10"]:hover,
 .edgesub-light [class~="focus:bg-white/10"]:focus {
@@ -150,13 +216,13 @@ html.edgesub-light body {
 
 .edgesub-light [class~="hover:text-white"]:hover,
 .edgesub-light [class~="focus:text-white"]:focus {
-  color: #087f70 !important;
+  color: #ea580c !important;
 }
 
 .edgesub-light [class~="data-[state=active]:bg-white/10"][data-state="active"],
 .edgesub-light [class~="data-[state=checked]:bg-white/10"][data-state="checked"] {
   background-color: #ffffff !important;
-  color: #05665b !important;
+  color: #c2410c !important;
   box-shadow: 0 1px 5px rgb(23 35 33 / 10%);
 }
 
@@ -164,7 +230,7 @@ html.edgesub-light body {
 .edgesub-light textarea,
 .edgesub-light select {
   color-scheme: light;
-  caret-color: #087f70;
+  caret-color: #ea580c;
 }
 
 .edgesub-light input[type="date"] {
@@ -176,14 +242,14 @@ html.edgesub-light body {
 }
 
 .edgesub-light ::selection {
-  background: rgb(8 127 112 / 18%);
+  background: rgb(234 88 12 / 18%);
   color: #172321;
 }
 
 .edgesub-light .custom-scrollbar {
-  scrollbar-color: rgb(8 127 112 / 35%) transparent;
+  scrollbar-color: rgb(234 88 12 / 35%) transparent;
 }
 
 .edgesub-light .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgb(8 127 112 / 35%);
+  background: rgb(234 88 12 / 35%);
 }

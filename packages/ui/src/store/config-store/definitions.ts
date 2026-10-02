@@ -66,6 +66,8 @@ export interface SubscriptionSource {
   userinfoUrl?: string;
   // 获取流量/到期元信息时使用的自定义 User-Agent（可选）
   userinfoUserAgent?: string;
+  // 拉取订阅时固定使用的客户端标识（可选，部分机场只放行特定客户端）
+  userAgent?: string;
   // 导入状态
   parsed?: boolean;
   parsing?: boolean;
@@ -80,7 +82,7 @@ export type { CustomProxyGroup };
 
 export async function fetchUrlContentInBrowser(
   url: string,
-  options?: { userinfoUrl?: string; userinfoUserAgent?: string }
+  options?: { userinfoUrl?: string; userinfoUserAgent?: string; userAgent?: string }
 ): Promise<{
   content: string;
   headers: Record<string, string>;
@@ -113,6 +115,9 @@ export async function fetchUrlContentInBrowser(
       ...(normalizedUserinfoUrl ? { userinfoUrl: normalizedUserinfoUrl } : {}),
       ...(typeof options?.userinfoUserAgent === "string" && options.userinfoUserAgent.trim()
         ? { userinfoUserAgent: options.userinfoUserAgent.trim() }
+        : {}),
+      ...(typeof options?.userAgent === "string" && options.userAgent.trim()
+        ? { userAgent: options.userAgent.trim() }
         : {}),
     });
 

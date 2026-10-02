@@ -34,6 +34,16 @@ describe("Edge remote fetch", () => {
     expect(() => assertPublicHttpUrl("http://[2001:db8:::1]/sub")).toThrow("无效的订阅 URL");
   });
 
+  it("explains that Workers cannot fetch public IP-literal subscriptions", async () => {
+    for (const url of ["https://179.255.115.32:2096/clash/abc", "https://[2606:4700::1111]/sub"]) {
+      expect(() => assertPublicHttpUrl(url)).toThrow("无法直接访问 IP 地址形式的订阅");
+    }
+    const fetchImpl = vi.fn<typeof fetch>();
+    await expect(fetchRemoteText("https://179.255.115.32/sub", OPTIONS, fetchImpl)).rejects.toThrow("IP 地址");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(assertPublicHttpUrl("https://sub.example.com/clash/abc").hostname).toBe("sub.example.com");
+  });
+
   it("cancels redirect bodies and validates the next target", async () => {
     const redirect = new Response("redirect", {
       status: 302,

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EdgeSub · 预览抽屉 · 关系图（设计稿 v2）</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="theme-tech.css">
+</head>
+<body>
+<iframe class="behind" src="home.html" title="背景：生成器"></iframe>
+<div class="scrim side-scrim">
+  <section class="drawer" role="dialog" aria-labelledby="t">
+    <div class="dh">
+      <div><h2 id="t">配置预览</h2><div class="sub">主力机场 · 日常 · 标准版</div></div>
+      <span class="sp"></span>
+      <div class="seg"><button class="on">关系图</button><button>YAML</button></div>
+      <button class="btn icon ghost" title="关闭"><i data-i="x"></i></button>
+    </div>
+    <div class="bar">
+      <span class="badge">42 节点</span><span class="badge">14 代理组</span><span class="badge">1,203 规则</span>
+      <span class="sp"></span>
+      <span style="color:var(--muted);font-size:13px">点选代理组查看流量去向 · 拖动代理组可调整顺序</span>
+    </div>
+    <div class="body">
+      <div class="graph" id="graph">
+        <svg class="links" id="links"></svg>
+        <div class="gcol rules">
+          <h4>规则（流量从哪来）<span>15 个规则集</span></h4>
+          <div class="gn hl" id="r-google">geosite:google<span class="c">412</span></div>
+          <div class="gn hl" id="r-gfont">geosite:google-cn<span class="c">38</span></div>
+          <div class="gn dim" id="r-yt">geosite:youtube<span class="c">96</span></div>
+          <div class="gn dim" id="r-openai">geosite:openai<span class="c">24</span></div>
+          <div class="gn dim" id="r-tg">geoip:telegram<span class="c">18</span></div>
+          <div class="gn dim" id="r-ads">geosite:category-ads-all<span class="c">310</span></div>
+          <div class="gn dim" id="r-cn">geosite:cn · geoip:cn<span class="c">290</span></div>
+          <div class="gn dim" id="r-match">MATCH（其余流量）</div>
+        </div>
+        <div class="gcol">
+          <h4>代理组<span>14 个</span></h4>
+          <div class="gn sel" id="g-google"><i data-i="globe"></i>谷歌服务<span class="t">手动</span></div>
+          <div class="gn dim" id="g-media"><i data-i="eye"></i>国外媒体<span class="t">手动</span></div>
+          <div class="gn dim" id="g-ai"><i data-i="wand"></i>AI 服务<span class="t">手动</span></div>
+          <div class="gn dim" id="g-tg"><i data-i="link"></i>电报消息<span class="t">手动</span></div>
+          <div class="gn dim" id="g-ads"><i data-i="x"></i>广告拦截<span class="t">拦截</span></div>
+          <div class="gn dim" id="g-cn"><i data-i="check"></i>国内直连<span class="t">直连</span></div>
+          <div class="gn dim" id="g-final"><i data-i="layers"></i>漏网之鱼<span class="t">手动</span></div>
+          <div class="gn" id="g-auto" style="border-style:dashed"><i data-i="refresh"></i>自动选择<span class="t">测速</span></div>
+        </div>
+        <div class="gcol">
+          <h4>出口<span>42 个节点</span></h4>
+          <div class="gn hl" id="x-hk"><span class="flag" style="background:#dc654f"></span>香港<span class="c">12</span></div>
+          <div class="gn hl" id="x-jp"><span class="flag" style="background:#315fcb"></span>日本<span class="c">10</span></div>
+          <div class="gn hl" id="x-sg"><span class="flag" style="background:#087f70"></span>新加坡<span class="c">8</span></div>
+          <div class="gn hl" id="x-us"><span class="flag" style="background:#9a5b07"></span>美国<span class="c">6</span></div>
+          <div class="gn dim" id="x-other"><span class="flag" style="background:#a9b6b3"></span>其他<span class="c">6</span></div>
+          <div class="gn dim" id="x-direct">DIRECT 直连</div>
+          <div class="gn dim" id="x-reject">REJECT 拒绝</div>
+        </div>
+      </div>
+      <div class="detail">
+        <div><div class="k">已选代理组</div><div class="v">谷歌服务</div></div>
+        <div><div class="k">类型</div><div class="v">手动选择</div></div>
+        <div><div class="k">默认出口</div><div class="v">自动选择 → 香港 01</div></div>
+        <div><div class="k">规则</div><div class="v">2 个规则集 · 450 条</div></div>
+        <div class="full">可选出口：<b>自动选择</b>、香港 12、日本 10、新加坡 8、美国 6（共 36 个节点）。在客户端里切换“谷歌服务”的出口，只影响 Google 相关流量。</div>
+      </div>
+    </div>
+    <div class="foot">
+      <span style="color:var(--muted);font-size:13px">关系图只读；要调整分组和规则，请在“自定义”里修改。</span>
+      <span class="sp" style="flex:1"></span>
+      <button class="btn"><i data-i="download"></i>下载 Clash</button>
+    </div>
+  </section>
+</div>
+<script src="icons.js"></script>
+<script>
+  // Draw connectors from element positions; highlighted links follow the selected group.
+  const links = [
+    ["r-google", "g-google", 1], ["r-gfont", "g-google", 1], ["r-yt", "g-media"], ["r-openai", "g-ai"],
+    ["r-tg", "g-tg"], ["r-ads", "g-ads"], ["r-cn", "g-cn"], ["r-match", "g-final"],
+    ["g-google", "x-hk", 1], ["g-google", "x-jp", 1], ["g-google", "x-sg", 1], ["g-google", "x-us", 1], ["g-google", "g-auto", 1],
+    ["g-media", "x-hk"], ["g-media", "x-sg"], ["g-ai", "x-us"], ["g-ai", "x-jp"], ["g-tg", "x-sg"],
+    ["g-ads", "x-reject"], ["g-cn", "x-direct"], ["g-final", "x-hk"], ["g-final", "x-other"],
+  ];
+  function draw() {
+    const svg = document.getElementById("links");
+    const box = document.getElementById("graph").getBoundingClientRect();
+    let html = "";
+    for (const [from, to, on] of links) {
+      const a = document.getElementById(from), b = document.getElementById(to);
+      if (!a || !b || !a.offsetParent || !b.offsetParent) continue;
+      const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+      const sameCol = Math.abs(ra.left - rb.left) < 4;
+      const x1 = (sameCol ? ra.left + 18 : ra.right) - box.left, y1 = ra.top + ra.height / 2 - box.top;
+      const x2 = (sameCol ? rb.left + 18 : rb.left) - box.left, y2 = rb.top + rb.height / 2 - box.top;
+      const d = sameCol
+        ? `M${x1},${y1} C${x1 - 40},${y1} ${x2 - 40},${y2} ${x2},${y2}`
+        : `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
+      html += `<path d="${d}" fill="none" style="stroke:${on ? "var(--brand)" : "var(--line-strong)"};stroke-width:${on ? 2 : 1.2}"/>`;
+    }
+    svg.innerHTML = html;
+  }
+  addEventListener("load", draw);
+  addEventListener("resize", draw);
+</script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EdgeSub · 我的订阅（设计稿 v2）</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="theme-tech.css">
+</head>
+<body>
+<header class="hdr">
+  <div class="in">
+    <div class="logo"><span data-mark style="width:32px;height:32px;display:inline-block"></span>EdgeSub</div>
+    <nav class="nav">
+      <a href="home.html"><i data-i="wand"></i>生成器</a>
+      <a href="dashboard.html" class="on"><i data-i="list"></i>我的订阅</a>
+    </nav>
+    <div class="sp"></div>
+    <span class="host">sub.cces.us.ci</span>
+    <button class="btn ghost sm"><i data-i="logout"></i>退出</button>
+  </div>
+</header>
+
+<main class="page">
+  <div class="ph">
+    <div>
+      <h1>我的订阅</h1>
+      <p class="only-d">3 个订阅 · 自动更新每 6 小时批量执行一次</p>
+    </div>
+    <button class="btn pri"><i data-i="plus"></i>新建订阅</button>
+  </div>
+
+  <section class="tiles">
+    <div class="card tile"><div class="ic"><i data-i="layers" class="lg"></i></div><div><div class="v">3</div><div class="l">订阅</div></div></div>
+    <div class="card tile"><div class="ic"><i data-i="check" class="lg"></i></div><div><div class="v">2</div><div class="l">自动更新正常</div></div></div>
+    <div class="card tile bad"><div class="ic"><i data-i="alert" class="lg"></i></div><div><div class="v">1</div><div class="l">更新失败</div></div></div>
+    <div class="card tile"><div class="ic"><i data-i="clock" class="lg"></i></div><div><div class="v" style="font-size:18px">今天 20:00</div><div class="l">下次定时更新</div></div></div>
+  </section>
+
+  <section class="card">
+    <div class="lh">
+      <div class="tabs">
+        <button class="on">全部<span class="n">3</span></button>
+        <button class="bad">更新失败<span class="n">1</span></button>
+        <button>自动更新<span class="n">2</span></button>
+        <button>手动<span class="n">1</span></button>
+      </div>
+      <div class="search"><i data-i="search"></i>搜索订阅</div>
+    </div>
+
+    <article class="row">
+      <div>
+        <div class="t"><span class="dot"></span><span class="name">主力机场 · 日常</span><span class="badge brand">内置规则 · 标准版</span><span class="badge">每 24 小时</span></div>
+        <div class="meta">
+          <span><i data-i="refresh"></i>5 小时前更新</span>
+          <span><i data-i="clock"></i>约 19 小时后更新</span>
+          <span><i data-i="globe"></i>42 个节点</span>
+          <span><i data-i="db"></i>128 / 500 GB · 12-31 到期</span>
+        </div>
+      </div>
+      <div class="acts">
+        <div class="split"><button class="btn pri"><i data-i="copy"></i>复制链接</button><button class="btn pri" title="选择格式"><i data-i="chevron"></i></button></div>
+        <button class="btn icon" title="二维码"><i data-i="qr"></i></button>
+        <button class="btn icon" title="更多操作"><i data-i="more"></i></button>
+      </div>
+    </article>
+
+    <article class="row">
+      <div>
+        <div class="t"><span class="dot bad"></span><span class="name">备用线路（自建 VPS）</span><span class="badge brand">内置规则 · 精简版</span><span class="badge">每 6 小时</span><span class="badge bad">更新失败</span></div>
+        <div class="meta">
+          <span><i data-i="refresh"></i>1 天前成功更新</span>
+          <span><i data-i="clock"></i>约 4 小时后重试</span>
+          <span><i data-i="globe"></i>8 个节点</span>
+        </div>
+        <div class="alert"><i data-i="alert"></i><div><b>2 小时前定时更新失败：</b>订阅源 example.com 返回 HTTP 503。客户端仍会拿到 1 天前成功的配置。</div><span class="more">立即重试</span></div>
+      </div>
+      <div class="acts">
+        <div class="split"><button class="btn pri"><i data-i="copy"></i>复制链接</button><button class="btn pri"><i data-i="chevron"></i></button></div>
+        <button class="btn icon"><i data-i="qr"></i></button>
+        <button class="btn icon"><i data-i="more"></i></button>
+      </div>
+    </article>
+
+    <article class="row">
+      <div>
+        <div class="t"><span class="dot idle"></span><span class="name">ACL4SSR 精简版</span><span class="badge blue">ACL4SSR · 精简版</span><span class="badge">手动更新</span></div>
+        <div class="meta">
+          <span><i data-i="refresh"></i>2 天前更新</span>
+          <span><i data-i="layers"></i>转换结果 12 分钟前缓存</span>
+          <span><i data-i="globe"></i>36 个节点</span>
+        </div>
+      </div>
+      <div class="acts">
+        <div class="split"><button class="btn pri"><i data-i="copy"></i>复制链接</button><button class="btn pri"><i data-i="chevron"></i></button></div>
+        <button class="btn icon"><i data-i="qr"></i></button>
+        <button class="btn icon" style="border-color:var(--brand);color:var(--brand-strong)"><i data-i="more"></i></button>
+      </div>
+      <nav class="menu">
+        <a class="hl"><i data-i="edit"></i>编辑节点与规则</a>
+        <a><i data-i="settings"></i>名称与自动更新</a>
+        <a><i data-i="refresh"></i>立即刷新</a>
+        <hr>
+        <a><i data-i="download"></i>下载 Clash 配置</a>
+        <a><i data-i="download"></i>下载 v2rayN 订阅</a>
+        <hr>
+        <a class="danger"><i data-i="trash"></i>删除订阅…</a>
+      </nav>
+    </article>
+  </section>
+
+  <section class="card foot-status">
+    <i data-i="db"></i><b>规则库</b> MetaCubeX/meta-rules-dat · 1,596 条规则 · 9 小时前同步 · 下次 明天 11:17
+    <span class="sp"></span>
+    <button class="btn sm"><i data-i="refresh"></i>立即同步</button>
+  </section>
+</main>
+
+<nav class="tabbar">
+  <a href="home.html"><i data-i="wand" class="lg"></i>生成器</a>
+  <a class="new"><span class="c"><i data-i="plus" class="lg"></i></span><span style="color:var(--muted)">新建</span></a>
+  <a class="on"><i data-i="list" class="lg"></i>我的订阅</a>
+</nav>
+<script src="icons.js"></script>
+</body>
+</html>

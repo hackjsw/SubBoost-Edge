@@ -1,6 +1,6 @@
 {
   "name": "@subboost/edge",
-  "version": "2.6.0-edge.6",
+  "version": "2.6.0-edge.7",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -25,6 +25,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-remove-scroll-bar": "^2.3.8",
+    "uqr": "^0.1.3",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

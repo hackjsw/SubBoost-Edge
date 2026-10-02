@@ -1,0 +1,20 @@
+/* EdgeSub v2 login page. */
+.es-login { min-height: calc(100vh - 140px); display: grid; place-items: center; padding: 48px 16px; }
+.es-login-card { width: min(420px, 100%); overflow: hidden; }
+.es-login-bar { display: flex; height: 3px; }
+.es-login-bar span:nth-child(1) { flex: 4; background: var(--es-brand); }
+.es-login-bar span:nth-child(2) { flex: 1; background: var(--es-line-strong); }
+.es-login-bar span:nth-child(3) { flex: 1; background: #315fcb; }
+.es-login-body { padding: 28px; }
+.es-login-head { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+.es-login-mark svg { width: 44px; height: 44px; }
+.es-login-head h1 { margin: 0; font-size: 20px; font-weight: 700; }
+.es-login-head p { margin: 4px 0 0; color: var(--es-muted); font-size: 13px; }
+.es-login-form { display: grid; gap: 10px; }
+.es-login-form > label { font-size: 13px; font-weight: 600; color: var(--es-muted); }
+.es-login-field { position: relative; }
+.es-login-field .es-input { height: 44px; padding: 0 44px 0 40px; }
+.es-login-key { position: absolute; left: 13px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: var(--es-faint); pointer-events: none; }
+.es-login-eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
+.es-login-err { padding: 9px 12px; border-radius: 8px; background: var(--es-danger-soft); color: var(--es-danger-ink); border: 1px solid var(--es-danger-line); font-size: 13px; }
+.es-login-form .es-btn.lg { margin-top: 6px; }

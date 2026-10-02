@@ -248,6 +248,7 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
           const fetched = await fetchUrlContentInBrowser(source.content, {
             userinfoUrl: source.userinfoUrl,
             userinfoUserAgent: source.userinfoUserAgent,
+            userAgent: source.userAgent,
           });
           contentToParse = fetched.content;
           prefetchedParseResult = pickUrlFetchParseResult(fetched);
@@ -452,6 +453,7 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
               const fetched = await fetchUrlContentInBrowser(source.content, {
                 userinfoUrl: source.userinfoUrl,
                 userinfoUserAgent: source.userinfoUserAgent,
+                userAgent: source.userAgent,
               });
               contentToParse = fetched.content;
               prefetchedParseResult = pickUrlFetchParseResult(fetched);

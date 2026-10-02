@@ -151,6 +151,7 @@ export function useEditingSubscriptionLoader({
               const useProxyProviders = (item as any).useProxyProviders;
               const userinfoUrl = (item as any).userinfoUrl;
               const userinfoUserAgent = (item as any).userinfoUserAgent;
+              const userAgent = (item as any).userAgent;
               const subscriptionUserInfo = normalizeSubscriptionUserInfo((item as any).subscriptionUserInfo);
               const lastParsedTag = (item as any).lastParsedTag;
               const lastParsedNameTemplate = (item as any).lastParsedNameTemplate;
@@ -181,6 +182,7 @@ export function useEditingSubscriptionLoader({
                   t === "url" && typeof userinfoUserAgent === "string" && userinfoUserAgent.trim()
                     ? userinfoUserAgent.trim()
                     : undefined,
+                userAgent: t === "url" && typeof userAgent === "string" && userAgent.trim() ? userAgent.trim() : undefined,
                 lastParsedTag: typeof lastParsedTag === "string" && lastParsedTag.trim() ? lastParsedTag.trim() : undefined,
                 lastParsedNameTemplate:
                   typeof lastParsedNameTemplate === "string" && lastParsedNameTemplate.trim()
@@ -199,6 +201,7 @@ export function useEditingSubscriptionLoader({
               useProxyProviders?: boolean;
               userinfoUrl?: string;
               userinfoUserAgent?: string;
+              userAgent?: string;
               lastParsedTag?: string;
               lastParsedNameTemplate?: string;
             }>;
@@ -269,6 +272,9 @@ export function useEditingSubscriptionLoader({
               ...(s.type === "url" && typeof s.userinfoUserAgent === "string" && s.userinfoUserAgent.trim()
                 ? { userinfoUserAgent: s.userinfoUserAgent.trim() }
                 : {}),
+              ...(s.type === "url" && typeof s.userAgent === "string" && s.userAgent.trim()
+                ? { userAgent: s.userAgent.trim() }
+                : {}),
               ...(typeof s.lastParsedTag === "string" && s.lastParsedTag.trim() ? { lastParsedTag: s.lastParsedTag.trim() } : {}),
               ...(typeof s.lastParsedNameTemplate === "string" && s.lastParsedNameTemplate.trim()
                 ? { lastParsedNameTemplate: s.lastParsedNameTemplate.trim() }
@@ -328,6 +334,9 @@ export function useEditingSubscriptionLoader({
                 : {}),
               ...(s.type === "url" && typeof s.userinfoUserAgent === "string" && s.userinfoUserAgent.trim()
                 ? { userinfoUserAgent: s.userinfoUserAgent.trim() }
+                : {}),
+              ...(s.type === "url" && typeof s.userAgent === "string" && s.userAgent.trim()
+                ? { userAgent: s.userAgent.trim() }
                 : {}),
               ...(typeof s.lastParsedTag === "string" && s.lastParsedTag.trim() ? { lastParsedTag: s.lastParsedTag.trim() } : {}),
               ...(typeof s.lastParsedNameTemplate === "string" && s.lastParsedNameTemplate.trim()

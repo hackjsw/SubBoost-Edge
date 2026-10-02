@@ -1922,6 +1922,45 @@ describe("EdgeSub worker", () => {
     expect(oversized.status).toBe(413);
   });
 
+  it("lists active node counts and traffic usage for the dashboard", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const hk = parseNodeLink("trojan://password@hk.example.com:443?sni=hk.example.com#HK");
+    const jp = parseNodeLink("trojan://password@jp.example.com:443?sni=jp.example.com#JP");
+    await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Usage",
+          yaml: "proxies: []\nrules: []\n",
+          nodes: [hk, jp],
+          config: { deletedNodeNames: ["JP"] },
+          subscriptionInfo: { upload: 1024, download: 2048, total: 10240, expire: 1798675200 },
+        }),
+      }),
+      env
+    );
+    await handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "No Usage", yaml: "proxies: []\nrules: []\n" }),
+      }),
+      env
+    );
+
+    const list = await handleRequest(authenticatedRequest("https://edge.test/api/subscriptions", cookie), env);
+    const { subscriptions } = (await list.json()) as {
+      subscriptions: Array<{ name: string; nodeCount: number; usage: unknown }>;
+    };
+    const usage = subscriptions.find(sub => sub.name === "Usage")!;
+    expect(usage.nodeCount).toBe(1);
+    expect(usage.usage).toEqual({ usedBytes: 3072, totalBytes: 10240, expireAt: "2026-12-31T00:00:00.000Z" });
+    expect(subscriptions.find(sub => sub.name === "No Usage")).toMatchObject({ nodeCount: 0, usage: null });
+  });
+
   it("keeps the last successful YAML when a scheduled refresh fails", async () => {
     const kv = new MemoryKv();
     const env = createEnv(kv);

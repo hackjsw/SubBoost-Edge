@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EdgeSub · 复制订阅链接（设计稿 v2）</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="theme-tech.css">
+<style>
+  .clients { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .clients .btn { height: 34px; font-size: 13px; }
+  .dlg .sec { margin-top: 14px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  @media (max-width: 640px) {
+    .scrim { place-items: end stretch; }
+    .dlg { width: 100%; border-radius: 16px 16px 0 0; }
+    .dlg::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--line-strong); margin: 8px auto 0; }
+  }
+</style>
+</head>
+<body>
+<div class="scrim">
+  <section class="dlg" role="dialog" aria-labelledby="t">
+    <div class="dh">
+      <div>
+        <h2 id="t">复制订阅链接</h2>
+        <p>主力机场 · 日常 · 内置规则 · 标准版</p>
+      </div>
+      <button class="btn icon ghost" title="关闭"><i data-i="x"></i></button>
+    </div>
+    <div class="db">
+      <div class="seg" role="tablist">
+        <button class="on">Clash / Mihomo</button>
+        <button>v2rayN</button>
+      </div>
+      <div class="qr" data-qr></div>
+      <div class="urlbox">
+        <code>https://sub.cces.us.ci/config/a1b2c3d4e5f6a7b8c9d0</code>
+        <button class="btn pri"><i data-i="check"></i>已复制</button>
+      </div>
+      <div class="hint" style="margin-top:14px">订阅链接相当于访问凭证，请勿公开分享。手机客户端可直接扫描二维码导入。</div>
+    </div>
+  </section>
+</div>
+<script src="icons.js"></script>
+</body>
+</html>

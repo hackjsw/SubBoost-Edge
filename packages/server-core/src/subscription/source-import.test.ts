@@ -60,6 +60,23 @@ describe("importSubscriptionFromUrl", () => {
     expect(fetchText).toHaveBeenCalledWith(expect.objectContaining({ userAgent: "mihomo/1.19.24" }));
   });
 
+  it("fetches with only the pinned client identifier when one is set", async () => {
+    const fetchText = vi.fn(async (request: SourceImportTransportRequest): Promise<SourceImportTransportResult> =>
+      request.userAgent === "clash-verge/v2.2.3"
+        ? { ok: true, content: mihomoYaml, headers: {} }
+        : { ok: false, error: "HTTP 403", responseStatus: 403 }
+    );
+
+    const result = await importSubscriptionFromUrl(
+      { url: "https://panel.example.com/sub", userAgent: " clash-verge/v2.2.3 " },
+      { fetchText, userAgents: ["v2rayN/7.20.4", "mihomo/1.19.24"] }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(fetchText).toHaveBeenCalledTimes(1);
+    expect(fetchText).toHaveBeenCalledWith(expect.objectContaining({ userAgent: "clash-verge/v2.2.3", purpose: "content" }));
+  });
+
   it("continues to Mihomo when the v2rayN response is link-only and may be incomplete", async () => {
     const fetchText = vi.fn(async (request: SourceImportTransportRequest): Promise<SourceImportTransportResult> => {
       if (request.userAgent.startsWith("v2rayN/")) {

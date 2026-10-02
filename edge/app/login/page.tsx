@@ -1,12 +1,9 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
 import { Eye, EyeOff, KeyRound, LoaderCircle, LogIn } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { Button } from "@subboost/ui/components/ui/button";
-import { Input } from "@subboost/ui/components/ui/input";
-import { Label } from "@subboost/ui/components/ui/label";
+import { EdgeMark } from "@edge/components/edge-header";
 
 function safeNextPath(value: string | null): string {
   return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
@@ -52,71 +49,69 @@ function LoginForm() {
   };
 
   return (
-    <main className="mx-auto flex min-h-[calc(100vh-9rem)] w-full max-w-md items-center px-4 py-12 sm:px-6">
-      <section className="w-full overflow-hidden rounded-lg border border-[#d7e0de] bg-white shadow-[0_22px_55px_rgba(23,35,33,0.10)]">
-        <div className="flex h-1" aria-hidden="true">
-          <span className="flex-[3] bg-[#087f70]" />
-          <span className="flex-1 bg-[#dc654f]" />
-          <span className="flex-1 bg-[#315fcb]" />
+    <div className="es-login">
+      <section className="es-card es-login-card">
+        <div className="es-login-bar" aria-hidden="true">
+          <span />
+          <span />
+          <span />
         </div>
-        <div className="p-6 sm:p-8">
-          <div className="mb-8 flex items-start gap-4">
-            <Image src="/edgesub-mark.svg" alt="EdgeSub" width={44} height={44} priority className="h-11 w-11 shrink-0" />
-            <div className="min-w-0">
-              <h1 className="text-xl font-semibold text-[#172321]">管理员登录</h1>
-              <p className="mt-1 text-sm text-[#60706d]">EdgeSub 管理工作台</p>
+        <div className="es-login-body">
+          <div className="es-login-head">
+            <span className="es-logo es-login-mark">
+              <EdgeMark />
+            </span>
+            <div>
+              <h1>管理员登录</h1>
+              <p>EdgeSub · 订阅转换与自动更新工作台</p>
             </div>
           </div>
 
-          <form onSubmit={submit} className="space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="admin-password" className="text-sm text-[#475754]">
-                管理密码
-              </Label>
-              <div className="relative">
-                <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#71817e]" />
-                <Input
-                  id="admin-password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
-                  autoFocus
-                  required
-                  className="h-11 pl-10 pr-11"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-[#71817e] transition-colors hover:bg-[#edf3f1] hover:text-[#087f70] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087f70]/40"
-                  aria-label={showPassword ? "隐藏密码" : "显示密码"}
-                  title={showPassword ? "隐藏密码" : "显示密码"}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
+          <form onSubmit={submit} className="es-login-form">
+            <label htmlFor="admin-password">管理密码</label>
+            <div className="es-login-field">
+              <KeyRound className="es-login-key" aria-hidden="true" />
+              <input
+                id="admin-password"
+                className="es-input"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                autoFocus
+                required
+              />
+              <button
+                type="button"
+                className="es-btn ghost sm icon es-login-eye"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                title={showPassword ? "隐藏密码" : "显示密码"}
+              >
+                {showPassword ? <EyeOff /> : <Eye />}
+              </button>
             </div>
 
             {error && (
-              <div role="alert" className="rounded-md border border-[#e4aaa0] bg-[#fff3f0] px-3 py-2.5 text-sm text-[#a33c31]">
+              <div role="alert" className="es-login-err">
                 {error}
               </div>
             )}
 
-            <Button type="submit" className="h-11 w-full rounded-md" disabled={!password || submitting}>
-              {submitting ? <LoaderCircle className="animate-spin" /> : <LogIn />}
-              {submitting ? "正在登录" : "登录"}
-            </Button>
+            <button type="submit" className="es-btn pri lg es-block" disabled={!password || submitting}>
+              {submitting ? <LoaderCircle className="es-spin" /> : <LogIn />}
+              {submitting ? "正在登录…" : "登录"}
+            </button>
           </form>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <React.Suspense fallback={<div className="min-h-[calc(100vh-9rem)]" />}>
+    <React.Suspense fallback={<div className="es-login" />}>
       <LoginForm />
     </React.Suspense>
   );
