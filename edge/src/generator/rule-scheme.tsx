@@ -4,6 +4,7 @@ import * as React from "react";
 import { AlertTriangle, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { getTemplateList } from "@subboost/core/templates";
 import type { TemplateType } from "@subboost/core/types/config";
+import { DEFAULT_BASE_CONFIG_YAML } from "@subboost/core/config/defaults";
 import type {
   ClashConversionProfile,
   ClashConversionProfileId,
@@ -26,8 +27,10 @@ type Props = {
 
 const TEMPLATES = getTemplateList();
 
-function hasCustomizations(): boolean {
-  const state = useConfigStore.getState();
+type ConfigStoreState = ReturnType<typeof useConfigStore.getState>;
+
+// What a template switch resets.
+function hasRuleCustomizations(state: ConfigStoreState = useConfigStore.getState()): boolean {
   return (
     state.customRules.length > 0 ||
     state.customProxyGroups.length > 0 ||
@@ -37,10 +40,30 @@ function hasCustomizations(): boolean {
   );
 }
 
+// Anything edited inside the customize panel. Manual renames are not detected:
+// name templates also change node names, so they cannot be told apart.
+function hasCustomizations(state: ConfigStoreState): boolean {
+  return (
+    hasRuleCustomizations(state) ||
+    state.deletedNodes.length > 0 ||
+    state.deletedNodeNames.length > 0 ||
+    Object.keys(state.listenerPorts ?? {}).length > 0 ||
+    state.hiddenProxyGroups.length > 0 ||
+    Object.keys(state.proxyGroupNameOverrides ?? {}).length > 0 ||
+    Object.keys(state.proxyGroupAdvanced ?? {}).length > 0 ||
+    state.dnsYaml.trim() !== DEFAULT_BASE_CONFIG_YAML.trim()
+  );
+}
+
 export function RuleScheme({ conversionProfiles, conversionProfileId, setConversionProfileId }: Props) {
   const template = useConfigStore((state) => state.template);
   const setTemplate = useConfigStore((state) => state.setTemplate);
-  const [customize, setCustomize] = React.useState(hasCustomizations);
+  const customized = useConfigStore(hasCustomizations);
+  const [customize, setCustomize] = React.useState(customized);
+  // An edited subscription loads after mount; open the panel once its customizations arrive.
+  React.useEffect(() => {
+    if (customized) setCustomize(true);
+  }, [customized]);
   const [expanded, setExpanded] = React.useState<Set<SectionKey>>(() => new Set<SectionKey>(["filter"]));
 
   const nativeProfile = conversionProfiles.find((profile) => !profile.configUrl);
@@ -58,7 +81,7 @@ export function RuleScheme({ conversionProfiles, conversionProfileId, setConvers
 
   const chooseTemplate = async (id: TemplateType) => {
     if (id === template && !usingRemote) return;
-    if (id !== template && customize && hasCustomizations()) {
+    if (id !== template && customize && hasRuleCustomizations()) {
       const ok = await confirmDialog({
         title: "切换模板？",
         description: "切换模板会重置分流代理组和自定义规则，节点管理与 DNS 设置保留。",
