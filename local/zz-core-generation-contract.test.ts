@@ -80,7 +80,8 @@ describe("local shared core generation contract", () => {
             name: "Chain",
             type: "fallback",
             enabled: true,
-            relayNodes: ["DIRECT", "Missing Relay", "US Node"],
+            // A target cannot also be a relay: US Node → Chain → US Node is rejected as a cycle.
+            relayNodes: ["DIRECT", "Missing Relay"],
             targetNodes: ["US Node", "Missing Target"],
           },
           {
