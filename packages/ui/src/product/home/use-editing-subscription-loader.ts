@@ -28,6 +28,7 @@ import {
 
 export function useEditingSubscriptionLoader({
   editSubscriptionId,
+  enabled = true,
   loadSubscription,
   loginHref = "/login",
   setCopied,
@@ -40,7 +41,7 @@ export function useEditingSubscriptionLoader({
 
   // 从“我的订阅”跳转回来时，加载订阅详情到首页编辑器
   React.useEffect(() => {
-    if (!editSubscriptionId) return;
+    if (!editSubscriptionId || !enabled) return;
 
     let cancelled = false;
     const run = async () => {
@@ -602,7 +603,7 @@ export function useEditingSubscriptionLoader({
     return () => {
       cancelled = true;
     };
-  }, [editSubscriptionId, loadSubscription, loginHref, setCopied, setEditingSubscription, setStoreSources, setSubscriptionName, setSubscriptionUrl]);
+  }, [editSubscriptionId, enabled, loadSubscription, loginHref, setCopied, setEditingSubscription, setStoreSources, setSubscriptionName, setSubscriptionUrl]);
 
-  return isLoadingEditingSubscription;
+  return isLoadingEditingSubscription || (Boolean(editSubscriptionId) && !enabled);
 }

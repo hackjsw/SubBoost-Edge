@@ -216,6 +216,7 @@ describe("HomeSurface", () => {
     });
     expect(mocks.captures.editingLoader).toMatchObject({
       editSubscriptionId: "sub-1",
+      enabled: false,
       loginHref: "/service-login",
       loadSubscription: mocks.loadSubscription,
     });

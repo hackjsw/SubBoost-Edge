@@ -12,6 +12,8 @@ export type EditingSubscription = {
 
 export type EditingSubscriptionLoaderOptions = {
   editSubscriptionId: string | null;
+  // 草稿作用域切换会重置编辑器，需等登录态确认后再加载，否则加载结果会被清空
+  enabled?: boolean;
   loadSubscription?: (id: string) => Promise<Response>;
   loginHref?: string;
   setCopied: (copied: boolean) => void;

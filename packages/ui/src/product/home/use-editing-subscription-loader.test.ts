@@ -158,6 +158,20 @@ describe("useEditingSubscriptionLoader", () => {
     expect(mocks.useConfigStore.setState).not.toHaveBeenCalled();
   });
 
+  it("waits for the auth check before loading so the draft scope reset cannot wipe it", async () => {
+    const options = makeOptions({
+      enabled: false,
+      loadSubscription: vi.fn(async () => response(200, { subscription: { id: "sub-1", token: "sub-1" } })),
+    });
+
+    const isLoading = useEditingSubscriptionLoader(options);
+    await flushAsync();
+
+    expect(isLoading).toBe(true);
+    expect(options.loadSubscription).not.toHaveBeenCalled();
+    expect(mocks.useConfigStore.setState).not.toHaveBeenCalled();
+  });
+
   it("captures the draft and redirects to login on 401", async () => {
     const options = makeOptions({
       loadSubscription: vi.fn(async () => response(401, { error: "login required" })),
