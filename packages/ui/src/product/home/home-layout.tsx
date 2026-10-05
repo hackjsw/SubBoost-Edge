@@ -66,7 +66,7 @@ export type SubscriptionLinkState = {
   isEditingExistingSubscription: boolean;
   handleGenerateSubscription: (mode: ProductMode) => void;
   handleAcceptSaveRequirement: () => void;
-  handleCreateSubscription: () => void;
+  handleCreateSubscription: () => Promise<boolean>;
   handleCopyUrl: (format?: SubscriptionFormat) => void;
 };
 

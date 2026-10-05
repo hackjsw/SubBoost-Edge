@@ -87,7 +87,6 @@ export function EdgeGeneratorLayout(layout: HomeLayoutProps) {
   const [saveQueued, setSaveQueued] = React.useState(false);
   const [preparing, setPreparing] = React.useState(false);
   const nameTouched = React.useRef(false);
-  const lastUrl = React.useRef(subscription.subscriptionUrl);
   const editing = subscription.isEditingExistingSubscription && editingSubscription;
 
   const model = React.useMemo(() => buildConfigModel(generatedYaml), [generatedYaml]);
@@ -120,17 +119,14 @@ export function EdgeGeneratorLayout(layout: HomeLayoutProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstSourceName, editing]);
 
-  // A successful save fills subscriptionUrl; show the link right away.
-  React.useEffect(() => {
-    if (subscription.subscriptionUrl && subscription.subscriptionUrl !== lastUrl.current) setLinkOpen(true);
-    lastUrl.current = subscription.subscriptionUrl;
-  }, [subscription.subscriptionUrl]);
-
   // Saving reads YAML from props, so wait for the re-render after a regeneration.
+  // Show the link after every successful save: when editing, the URL never changes.
   React.useEffect(() => {
     if (!saveQueued || generatedYaml !== useConfigStore.getState().generatedYaml) return;
     setSaveQueued(false);
-    void subscription.handleCreateSubscription();
+    void subscription.handleCreateSubscription().then((saved) => {
+      if (saved) setLinkOpen(true);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveQueued, generatedYaml]);
 

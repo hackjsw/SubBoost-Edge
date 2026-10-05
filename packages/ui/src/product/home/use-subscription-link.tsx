@@ -308,10 +308,10 @@ export function useSubscriptionLink({
   }, [fetchUser, initializeSubscriptionDialog, interactions, subscriptionAdapter]);
 
   // 创建订阅链接
-  const handleCreateSubscription = React.useCallback(async () => {
+  const handleCreateSubscription = React.useCallback(async (): Promise<boolean> => {
     if (!subscriptionName.trim() || !generatedYaml) {
       trackSubscriptionMutation(!generatedYaml ? "noInput" : "validationError");
-      return;
+      return false;
     }
 
     const hoursValue = Number(autoUpdateHours);
@@ -319,12 +319,12 @@ export function useSubscriptionLink({
       if (!Number.isFinite(hoursValue) || hoursValue <= 0) {
         trackSubscriptionMutation("validationError");
         toast({ title: "自动更新间隔必须是有效小时数", variant: "warning" });
-        return;
+        return false;
       }
       if (autoUpdatePolicy.requireIntegerHours && !Number.isInteger(hoursValue)) {
         trackSubscriptionMutation("validationError");
         toast({ title: "自动更新间隔必须是整数小时", variant: "warning" });
-        return;
+        return false;
       }
       if (hoursValue < autoUpdatePolicy.minHours) {
         trackSubscriptionMutation("validationError");
@@ -332,7 +332,7 @@ export function useSubscriptionLink({
           title: `自动更新最小间隔为 ${getAutoUpdateIntervalPolicyMinLabel(autoUpdatePolicy)}`,
           variant: "warning",
         });
-        return;
+        return false;
       }
     }
 
@@ -340,7 +340,7 @@ export function useSubscriptionLink({
     if (!subscriptionAdapter?.saveSubscription) {
       trackSubscriptionMutation("runtimeError");
       toast({ title: "当前应用未配置订阅保存接口", variant: "destructive" });
-      return;
+      return false;
     }
 
     setIsCreatingSubscription(true);
@@ -497,7 +497,7 @@ export function useSubscriptionLink({
           ),
         });
         setSubscriptionDialog(false);
-        return;
+        return false;
       }
 
       if (response.ok) {
@@ -518,6 +518,7 @@ export function useSubscriptionLink({
           });
         }
         trackSubscriptionMutation("success");
+        return true;
       } else {
         trackSubscriptionMutation(response.status >= 500 ? "runtimeError" : "validationError");
         toast({ title: data.error || "创建失败", variant: "destructive" });
@@ -529,6 +530,7 @@ export function useSubscriptionLink({
     } finally {
       setIsCreatingSubscription(false);
     }
+    return false;
   }, [
     appliedTemplateId,
     autoUpdatePolicy,
