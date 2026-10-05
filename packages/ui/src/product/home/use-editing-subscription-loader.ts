@@ -12,6 +12,10 @@ import { normalizeProxyGroupAdvancedConfig } from "@subboost/core/proxy-group-ad
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import { resolveClashConversionProfileId } from "@subboost/core/subscription/clash-conversion-profiles";
 import {
+  filterDeletedStoredNodes,
+  type DeletedNodeDescriptor,
+} from "@subboost/core/subscription/source-node-refresh";
+import {
   hasSubscriptionUserInfo,
   normalizeSubscriptionUserInfo,
   type SubscriptionUserInfo,
@@ -22,7 +26,6 @@ import { toast } from "@subboost/ui/components/ui/toaster";
 import {
   ensureNodeOriginName,
   ensureNodesHaveValidSourceIds,
-  getNodeOriginName,
   getNodeSourceIds,
 } from "./editing-subscription-node-sources";
 
@@ -123,14 +126,15 @@ export function useEditingSubscriptionLoader({
           return out;
         })();
 
-        const deletedOriginNameSet = new Set<string>(deletedNodeNamesMerged);
-        const filteredLoadedNodes =
-          deletedOriginNameSet.size > 0
-            ? loadedNodes.filter((node) => {
-              const origin = getNodeOriginName(node);
-              return !deletedOriginNameSet.has(origin);
-            })
-            : loadedNodes;
+        const filteredLoadedNodes = filterDeletedStoredNodes(
+          loadedNodes,
+          deletedNodeNamesMerged,
+          Array.isArray((cfg as any).deletedNodes)
+            ? ((cfg as any).deletedNodes as unknown[]).filter(
+              (item): item is DeletedNodeDescriptor => Boolean(item) && typeof item === "object" && !Array.isArray(item)
+            )
+            : []
+        );
 
         // 优先从 config.sources 恢复用户当时的“输入源”（保留 YAML/节点链接/多个 URL 的顺序）
         // 若订阅记录尚未保存 sources，则仅按 urls 重建，避免插入空白 YAML/#nodes 导致顺序错乱。

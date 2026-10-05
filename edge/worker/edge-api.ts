@@ -15,6 +15,7 @@ import { validateProxyReferences } from "@subboost/core/generator/validate-refer
 import { generateClashYaml } from "@subboost/core/generator";
 import { isMihomoSupportedProxyNode } from "@subboost/core/mihomo/proxy-sanitizer";
 import { buildGenerateOptionsFromConfig } from "@subboost/core/subscription/config-utils";
+import { filterDeletedStoredNodes } from "@subboost/core/subscription/source-node-refresh";
 import { getSubscriptionFormat, type SubscriptionFormat } from "@subboost/core/subscription/output-format";
 import { buildV2rayNResponse } from "@subboost/server-core/subscription/output-response";
 import { validateCronSecret } from "@subboost/server-core/cron-auth";
@@ -814,21 +815,12 @@ function buildStoredSubscription(
 
 // Nodes the user removed in the editor stay in the record but are not served.
 function activeNodeCount(record: StoredSubscription): number {
-  const deleted = new Set<string>();
   const { deletedNodeNames, deletedNodes } = record.config;
-  if (Array.isArray(deletedNodeNames)) {
-    for (const name of deletedNodeNames) if (typeof name === "string") deleted.add(name.trim());
-  }
-  if (Array.isArray(deletedNodes)) {
-    for (const item of deletedNodes) {
-      if (isRecord(item) && typeof item.originName === "string") deleted.add(item.originName.trim());
-    }
-  }
-  if (!deleted.size) return record.nodes.length;
-  return record.nodes.filter((node) => {
-    const origin = (node as { originName?: unknown }).originName;
-    return !deleted.has((typeof origin === "string" && origin.trim()) || node.name);
-  }).length;
+  return filterDeletedStoredNodes(
+    record.nodes,
+    Array.isArray(deletedNodeNames) ? deletedNodeNames.filter((name): name is string => typeof name === "string") : [],
+    Array.isArray(deletedNodes) ? deletedNodes.filter(isRecord) : []
+  ).length;
 }
 
 function publicUsage(info: SubscriptionResponseInfo) {

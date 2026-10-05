@@ -40,6 +40,47 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+// Drops saved nodes the user removed, with the same rules as mergeParsedSourceNodes:
+// deletions with a node snapshot match that exact node, while bare origin-name
+// markers only apply when that origin name is unique. Deleting one of several
+// same-named nodes must not hide the rest of the batch.
+export function filterDeletedStoredNodes(
+  nodes: ParsedNode[],
+  deletedNodeNames: string[],
+  deletedNodes: DeletedNodeDescriptor[] = []
+): ParsedNode[] {
+  const originOf = (node: ParsedNode) => getNodeOriginName(node).trim() || node.name;
+  const deletedNames = new Set<string>();
+  for (const name of deletedNodeNames) {
+    const normalized = normalizeOptionalString(name);
+    if (normalized) deletedNames.add(normalized);
+  }
+  const deletedNodeKeys = new Set<string>();
+  for (const item of deletedNodes) {
+    const origin = normalizeOptionalString(item?.originName);
+    if (!item?.node) {
+      if (origin) deletedNames.add(origin);
+      continue;
+    }
+    const node = normalizeNodeOriginName(item.node);
+    deletedNodeKeys.add(buildScopedNodeIdentityKey(origin ?? originOf(node), node));
+  }
+  if (deletedNames.size === 0 && deletedNodeKeys.size === 0) return nodes;
+
+  const originCounts = new Map<string, number>();
+  for (const node of nodes) {
+    const origin = originOf(node);
+    originCounts.set(origin, (originCounts.get(origin) ?? 0) + 1);
+  }
+
+  return nodes.filter((node) => {
+    const origin = originOf(node);
+    if (deletedNodeKeys.has(buildScopedNodeIdentityKey(origin, node))) return false;
+    if ((originCounts.get(origin) ?? 0) > 1) return true;
+    return !deletedNames.has(origin);
+  });
+}
+
 function mergePreservedRealityCapabilities(
   stored: Record<string, unknown>,
   fresh: Record<string, unknown>

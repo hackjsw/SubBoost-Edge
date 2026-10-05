@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ParsedNode } from "../types/node";
 import {
   detachSourceNodesFromState,
+  filterDeletedStoredNodes,
   mergeParsedSourceNodes,
   prepareSourceParsedNodes,
 } from "./source-node-refresh";
@@ -33,6 +34,22 @@ function ssNode(name: string, patch: Record<string, unknown> = {}): ParsedNode {
     ...patch,
   } as ParsedNode;
 }
+
+describe("filterDeletedStoredNodes", () => {
+  const dup = (server: string, name = "JP Node") => ssNode(name, { server, [ORIGIN_NAME_KEY]: "JP Node" });
+
+  it("keeps same-named survivors when one of them was deleted by origin name", () => {
+    const nodes = [dup("a.example.com"), dup("b.example.com", "JP Node (2)")];
+    const kept = filterDeletedStoredNodes(nodes, ["JP Node"], [{ originName: "JP Node", name: "JP Node (3)" }]);
+    expect(kept.map((node) => node.server)).toEqual(["a.example.com", "b.example.com"]);
+  });
+
+  it("drops exact snapshot matches and unique origin-name markers", () => {
+    const nodes = [dup("a.example.com"), dup("b.example.com", "JP Node (2)"), ssNode("Solo")];
+    const kept = filterDeletedStoredNodes(nodes, ["Solo"], [{ originName: "JP Node", node: dup("b.example.com", "JP Node (2)") }]);
+    expect(kept.map((node) => node.name)).toEqual(["JP Node"]);
+  });
+});
 
 describe("source node refresh helpers", () => {
   it("prepares parsed nodes with display names, origins, and sanitized imported-only fields", () => {
