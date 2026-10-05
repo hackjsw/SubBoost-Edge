@@ -176,7 +176,7 @@ function renderSection(
   stateMock.setters = [];
   mocks.captures = { buttons: [], cards: [], inputs: [], rawButtons: [] };
   try {
-    const html = renderToStaticMarkup(React.createElement(TemplatesSection, props));
+    const html = renderToStaticMarkup(React.createElement<NonNullable<React.ComponentProps<typeof TemplatesSection>>>(TemplatesSection, props));
     return { html, setters: stateMock.setters };
   } finally {
     stateMock.enabled = false;
