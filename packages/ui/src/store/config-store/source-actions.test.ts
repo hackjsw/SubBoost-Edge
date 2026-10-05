@@ -301,6 +301,35 @@ describe("createSourceActions", () => {
     });
   });
 
+  it("clears stale deletion markers for nodes of a newly pasted source", async () => {
+    mocks.parseSubscription.mockReturnValueOnce(parseResult([node("DMIT LAX")]));
+    const { actions, getState } = createHarness({
+      sources: [source({ id: "s1", type: "yaml", content: "proxies: [dmit]" })],
+      deletedNodeNames: ["DMIT LAX", "Other"],
+      deletedNodes: [{ originName: "DMIT LAX", name: "DMIT LAX" }, { originName: "Other", name: "Other" }],
+    });
+
+    await actions.parseSingleSource("s1");
+
+    expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual(["DMIT LAX"]);
+    expect(getState().deletedNodeNames).toEqual(["Other"]);
+    expect(getState().deletedNodes).toEqual([{ originName: "Other", name: "Other" }]);
+  });
+
+  it("keeps deletion markers when re-importing a previously imported source", async () => {
+    mocks.parseSubscription.mockReturnValueOnce(parseResult([node("DMIT LAX"), node("Kept")]));
+    const { actions, getState } = createHarness({
+      sources: [source({ id: "s1", type: "yaml", content: "proxies: [dmit]", lastParsedContent: "proxies: [dmit]" })],
+      deletedNodeNames: ["DMIT LAX"],
+      deletedNodes: [{ originName: "DMIT LAX", name: "DMIT LAX" }],
+    });
+
+    await actions.parseSingleSource("s1");
+
+    expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual(["Kept"]);
+    expect(getState().deletedNodeNames).toEqual(["DMIT LAX"]);
+  });
+
   it("parses fetched URL content when no prefetched parse result exists", async () => {
     mocks.fetchUrlContentInBrowser.mockResolvedValueOnce({
       content: "ss://remote",

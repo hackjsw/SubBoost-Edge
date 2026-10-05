@@ -1,6 +1,7 @@
 import type { ParsedNode, ParseResult } from "@subboost/core/types/node";
 import { parseSubscription } from "@subboost/core/parser";
 import { buildNodeContentKey, buildScopedNodeIdentityKey } from "@subboost/core/node-identity";
+import { getNodeOriginName } from "@subboost/core/subscription/node-source-state";
 import {
   detachSourceNodesFromState,
   mergeParsedSourceNodes,
@@ -179,6 +180,8 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
       const currentNameTemplate = typeof source.nameTemplate === "string" ? source.nameTemplate.trim() : "";
       const lastTag = typeof source.lastParsedTag === "string" ? source.lastParsedTag.trim() : "";
       const lastNameTemplate = typeof source.lastParsedNameTemplate === "string" ? source.lastParsedNameTemplate.trim() : "";
+      // 从未成功导入过的来源：lastParsedContent 只在导入成功后写入
+      const isFirstImport = !lastParsedContent;
 
       // 标记为解析中
       set({
@@ -282,14 +285,25 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
 
         // 刷新此订阅源解析出的节点：尽量保留用户顺序/手动改名，仅更新节点内容与来源归属。
         setAndGenerateConfig((state) => {
-          const merged = mergeParsedSourceNodes(state.nodes, parsedNodes, state.deletedNodeNames, {
+          // 删除记录只按原始名保存、不区分来源，来源移除后仍会残留。用户主动粘贴的新来源
+          // 不应被这些残留记录静默隐藏，因此清掉与其节点同名的删除记录；已有来源的重新拉取保持不变。
+          const parsedOrigins = new Set(parsedNodes.map((node) => getNodeOriginName(node).trim()).filter(Boolean));
+          const deletedNodeNames = isFirstImport
+            ? state.deletedNodeNames.filter((name) => !parsedOrigins.has(name.trim()))
+            : state.deletedNodeNames;
+          const deletedNodes = isFirstImport
+            ? state.deletedNodes.filter(
+                (item) => !(typeof item?.originName === "string" && parsedOrigins.has(item.originName.trim()))
+              )
+            : state.deletedNodes;
+          const merged = mergeParsedSourceNodes(state.nodes, parsedNodes, deletedNodeNames, {
             sourceId,
             currentTag,
             currentNameTemplate,
             lastTag,
             lastNameTemplate,
             treatAsNewSource,
-            deletedNodes: state.deletedNodes,
+            deletedNodes,
           });
 
           const nextNodes = merged.nodes;
@@ -329,6 +343,8 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
 
           return {
             nodes: nextNodes,
+            deletedNodeNames,
+            deletedNodes,
             listenerPorts: nextListenerPorts,
             dialerProxyGroups: nextDialerProxyGroups,
             sources: state.sources.map((s) =>
