@@ -168,6 +168,26 @@ describe("ProxyGroupAdvancedPanel", () => {
     );
   });
 
+  it("omits globally filtered nodes from member candidates", () => {
+    mocks.store.nodeNameFilter = {
+      enabled: true,
+      excludeRegexes: ["japan"],
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(ProxyGroupAdvancedPanel, {
+        target: { kind: "custom", id: "media", name: "Media" },
+        advanced: {},
+        onChange: vi.fn(),
+        rulesCount: 0,
+        rulesContent: null,
+      }),
+    );
+
+    expect(html).toContain("US Source");
+    expect(html).not.toContain("Japan Source");
+  });
+
   it("renders empty states without generated members or source matches", () => {
     mocks.store = {
       ...mocks.store,

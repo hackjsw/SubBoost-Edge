@@ -45,7 +45,7 @@ const protocolCases: Array<[string, (value: string) => ParsedNode]> = [
 ];
 
 describe("ECH share-link protocol contracts", () => {
-  it.each(protocolCases)("classifies %s ECH values and preserves the DNS name in generated YAML", (_protocol, parse) => {
+  it.each(protocolCases)("classifies %s ECH values and preserves query names in generated YAML", (_protocol, parse) => {
     const domainNode = parse("cloudflare-ech.com");
     expect(domainNode["ech-opts"]).toEqual({
       enable: true,
@@ -59,6 +59,20 @@ describe("ECH share-link protocol contracts", () => {
       rules: [],
     } as unknown as ClashConfig);
     expect(generated).toContain("ech-opts: {enable: true, query-server-name: cloudflare-ech.com}");
+
+    const compoundNode = parse("cloudflare-ech.com+https://203.0.113.53/dns-query");
+    expect(compoundNode["ech-opts"]).toEqual({
+      enable: true,
+      "query-server-name": "cloudflare-ech.com",
+    });
+    const compoundGenerated = configToYaml({
+      proxies: [compoundNode],
+      "proxy-groups": [],
+      "rule-providers": {},
+      rules: [],
+    } as unknown as ClashConfig);
+    expect(compoundGenerated).toContain("ech-opts: {enable: true, query-server-name: cloudflare-ech.com}");
+    expect(compoundGenerated).not.toContain("config: cloudflare-ech.com+");
 
     expect(parse("+w==")["ech-opts"]).toEqual({ enable: true, config: "+w==" });
     expect(parse("")["ech-opts"]).toEqual({ enable: true });

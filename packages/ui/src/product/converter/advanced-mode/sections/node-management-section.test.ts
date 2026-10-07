@@ -50,7 +50,8 @@ vi.mock("lucide-react", () => ({
 vi.mock("@subboost/ui/components/ui/badge", () => ({ Badge: () => null }));
 vi.mock("@subboost/ui/components/ui/button", () => ({
   Button: (props: any) => {
-    mocks.captures.button = props;
+    mocks.captures.buttons = [...(mocks.captures.buttons || []), props];
+    if (props.children === "批量编辑") mocks.captures.button = props;
     return null;
   },
 }));
@@ -80,6 +81,12 @@ vi.mock("../section-header", () => ({
 vi.mock("./node-management/bulk-edit-dialog", () => ({
   NodeManagementBulkEditDialog: (props: any) => {
     mocks.captures.bulkDialog = props;
+    return null;
+  },
+}));
+vi.mock("./node-management/auto-processing-dialog", () => ({
+  NodeManagementAutoProcessingDialog: (props: any) => {
+    mocks.captures.autoProcessingDialog = props;
     return null;
   },
 }));
@@ -147,6 +154,7 @@ describe("NodeManagementSection", () => {
         },
       ],
       nodes,
+      nodeNameFilter: { enabled: false, excludeRegexes: [] },
       deletedNodeNames: [" Gone ", "Deleted", ""],
       deletedNodes: [
         { originName: "Deleted", name: "[HK] Deleted" },
@@ -163,6 +171,7 @@ describe("NodeManagementSection", () => {
       listenerPorts: { "[HK] Alpha": 7891, Beta: 7892 },
       setListenerPort: vi.fn(),
       bulkSetListenerPorts: vi.fn(),
+      setNodeNameFilter: vi.fn(),
     };
   });
 
@@ -372,6 +381,109 @@ describe("NodeManagementSection", () => {
       baseName: "Numeric Tag",
       canEditBase: true,
     });
+  });
+
+  it("uses effective nodes for the list, search, and bulk edit while keeping the raw snapshot for auto processing", () => {
+    mocks.store.nodeNameFilter = { enabled: true, excludeRegexes: ["beta"] };
+    const { setters } = renderSection();
+
+    expect(mocks.captures.nodeList.nodes).toEqual([nodes[0]]);
+    expect(mocks.captures.nodeList.visibleNodes).toEqual([nodes[0]]);
+    expect(mocks.captures.bulkDialog.nodes).toEqual([nodes[0]]);
+    expect(mocks.captures.autoProcessingDialog).toEqual(
+      expect.objectContaining({
+        nodes,
+        config: { enabled: true, excludeRegexes: ["beta"] },
+        hasProxyProviders: false,
+      })
+    );
+
+    const autoProcessingButton = mocks.captures.buttons.find(
+      (props: any) => Array.isArray(props.children) && props.children[0] === "自动处理"
+    );
+    expect(autoProcessingButton.disabled).not.toBe(true);
+    autoProcessingButton.onClick();
+    expect(setters[11]).toHaveBeenCalledWith(true);
+
+    mocks.captures.autoProcessingDialog.onSave({
+      enabled: true,
+      excludeRegexes: ["beta"],
+    });
+    expect(mocks.store.setNodeNameFilter).toHaveBeenCalledWith({
+      enabled: true,
+      excludeRegexes: ["beta"],
+    });
+  });
+
+  it("keeps automatic processing available before nodes are imported", () => {
+    mocks.store.nodes = [];
+    renderSection();
+
+    const autoProcessingButton = mocks.captures.buttons.find(
+      (props: any) => Array.isArray(props.children) && props.children[0] === "自动处理"
+    );
+    expect(autoProcessingButton.disabled).not.toBe(true);
+  });
+
+  it.each([true, false])("counts only enabled keep/exclude rules in the automatic-processing badge (%s)", (includeEnabled) => {
+    mocks.store.nodeNameFilter = { enabled: true, includeEnabled, excludeEnabled: false, includeRegexes: ["Alpha"], excludeRegexes: ["beta"] };
+    renderSection();
+    const button = mocks.captures.buttons.find((props: any) => Array.isArray(props.children) && props.children[0] === "自动处理");
+    expect(button.children[1]?.props?.children ?? null).toBe(includeEnabled ? 1 : null);
+  });
+
+  it("orders only effective node slots when filtered nodes are hidden", () => {
+    const gamma = {
+      name: "Gamma",
+      type: "trojan",
+      server: "gamma.test",
+      port: 443,
+      password: "secret",
+      _originName: "Gamma",
+    };
+    mocks.store.nodes = [nodes[0], nodes[1], gamma];
+    mocks.store.nodeNameFilter = { enabled: true, excludeRegexes: ["beta"] };
+    renderSection();
+
+    mocks.captures.nodeList.moveNode(nodes[0].name, "down");
+    expect(mocks.store.setNodeOrder).toHaveBeenCalledWith(
+      nodes[0].name,
+      2,
+      [nodes[0].name, gamma.name]
+    );
+
+    mocks.captures.nodeList.setNodeOrder(gamma.name, 1);
+    expect(mocks.store.setNodeOrder).toHaveBeenCalledWith(
+      gamma.name,
+      1,
+      [nodes[0].name, gamma.name]
+    );
+  });
+
+  it("only treats a usable http(s) source as a proxy-provider output", () => {
+    for (const content of ["", "not a url", "ftp://example.com/provider"]) {
+      mocks.store.sources = [
+        {
+          id: "provider",
+          type: "url",
+          content,
+          useProxyProviders: true,
+        },
+      ];
+      renderSection();
+      expect(mocks.captures.autoProcessingDialog.hasProxyProviders).toBe(false);
+    }
+
+    mocks.store.sources = [
+      {
+        id: "provider",
+        type: "url",
+        content: " https://example.com/provider ",
+        useProxyProviders: true,
+      },
+    ];
+    renderSection();
+    expect(mocks.captures.autoProcessingDialog.hasProxyProviders).toBe(true);
   });
 
   it("ignores empty listener-port cleanup requests and keeps unchanged cleanup state", () => {

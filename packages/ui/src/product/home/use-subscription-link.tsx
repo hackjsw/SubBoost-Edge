@@ -27,6 +27,7 @@ import {
   type AutoUpdateIntervalPolicy,
   type AutoUpdateIntervalPolicyOverride,
 } from "@subboost/core/subscription/auto-update-interval";
+import type { NodeNameFilterConfig } from "@subboost/core/subscription/node-name-filter";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import {
   DEFAULT_CLASH_CONVERSION_PROFILE_ID,
@@ -42,6 +43,7 @@ import {
   type ProductInteractionResult,
   type ProductMode,
 } from "@subboost/ui/product/interactions";
+import { copyTextToClipboard } from "@subboost/ui/lib/clipboard";
 
 type EditingSubscription = {
   id: string;
@@ -344,6 +346,8 @@ export function useSubscriptionLink({
     }
 
     setIsCreatingSubscription(true);
+    const draftRevision = useConfigStore.getState().draftRevision;
+    const isCurrentDraft = () => useConfigStore.getState().draftRevision === draftRevision;
 
     try {
       const currentConfig = useConfigStore.getState();
@@ -367,6 +371,7 @@ export function useSubscriptionLink({
       const currentCnIpNoResolve = currentConfig.cnIpNoResolve ?? cnIpNoResolve;
       const currentExperimentalCnUseCnRuleSet =
         currentConfig.experimentalCnUseCnRuleSet ?? experimentalCnUseCnRuleSet;
+      const nodeNameFilter: NodeNameFilterConfig = currentConfig.nodeNameFilter;
 
       const subscriptionInfo: SubscriptionUserInfo = {};
       const sourceSubscriptionInfoById = new Map<string, SubscriptionUserInfo>();
@@ -397,6 +402,7 @@ export function useSubscriptionLink({
             template: currentTemplate,
             appliedTemplateId: currentAppliedTemplateId,
             smartNodeMatchingEnabled,
+            nodeNameFilter,
             // 用于“我的订阅 → 编辑”恢复输入源（保留 YAML/节点链接/多个 URL 的顺序）
             sources: storeSources
             .filter((s) => typeof s?.content === "string" && s.content.trim())
@@ -464,6 +470,7 @@ export function useSubscriptionLink({
             proxyGroupNameOverrides: currentProxyGroupNameOverrides,
             proxyGroupOrder: useConfigStore.getState().proxyGroupOrder,
             listenerPorts: currentListenerPorts,
+            groupListeners: currentConfig.groupListeners,
             dnsYaml: currentDnsYaml,
             ruleProviderBaseUrl: currentRuleProviderBaseUrl,
             testUrl: currentTestUrl,
@@ -482,6 +489,7 @@ export function useSubscriptionLink({
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = await response.json().catch(() => ({} as any));
+      if (!isCurrentDraft()) return false;
 
       if (response.status === 401) {
         clearUser();
@@ -524,6 +532,7 @@ export function useSubscriptionLink({
         toast({ title: data.error || "创建失败", variant: "destructive" });
       }
     } catch (error) {
+      if (!isCurrentDraft()) return false;
       console.error("Create subscription error:", error);
       trackSubscriptionMutation("runtimeError");
       toast({ title: "创建订阅失败，请稍后重试", variant: "destructive" });
@@ -577,18 +586,19 @@ export function useSubscriptionLink({
   const handleCopyUrl = React.useCallback(async (format: SubscriptionFormat = "clash") => {
     if (!subscriptionUrl) return;
 
-    try {
-      await navigator.clipboard.writeText(buildSubscriptionFormatUrl(subscriptionUrl, format));
-      setCopiedFormat(format);
-      setCopied(true);
-      interactions.subscriptionLinkCopied?.({
-        mode: subscriptionFlowMode,
-        flow: isEditingExistingSubscription ? "update" : "create",
-      });
-      setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error("Copy error:", error);
+    const copied = await copyTextToClipboard(buildSubscriptionFormatUrl(subscriptionUrl, format));
+    if (!copied) {
+      toast({ title: "复制失败，请手动复制订阅链接", variant: "destructive" });
+      return;
     }
+
+    setCopiedFormat(format);
+    setCopied(true);
+    interactions.subscriptionLinkCopied?.({
+      mode: subscriptionFlowMode,
+      flow: isEditingExistingSubscription ? "update" : "create",
+    });
+    setTimeout(() => setCopied(false), 2000);
   }, [interactions, isEditingExistingSubscription, subscriptionFlowMode, subscriptionUrl]);
 
   return {

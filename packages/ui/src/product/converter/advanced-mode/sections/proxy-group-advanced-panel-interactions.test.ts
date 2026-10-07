@@ -5,6 +5,7 @@ import type { ParsedNode } from "@subboost/core/types/node";
 
 const mocks = vi.hoisted(() => ({
   draggingKey: null as string | null,
+  formFields: [] as any[],
   generatedProxyGroups: [] as Array<{ name: string; proxies: string[] }>,
   stateSetters: [] as Array<ReturnType<typeof vi.fn>>,
   store: {} as Record<string, any>,
@@ -43,6 +44,18 @@ vi.mock("@subboost/ui/components/ui/badge", () => ({
 
 vi.mock("@subboost/ui/components/ui/button", () => ({
   Button: (props: any) => React.createElement("button", props, props.children),
+}));
+
+vi.mock("@subboost/ui/components/ui/form-field", () => ({
+  FormField: (props: any) => {
+    mocks.formFields.push(props);
+    return React.createElement("div", null, props.children);
+  },
+}));
+
+vi.mock("@subboost/ui/components/ui/choice-group", () => ({
+  ChoiceGroup: (props: any) => React.createElement("div", null, props.children),
+  ChoiceChip: ({ label, selected, ...props }: any) => React.createElement("button", { ...props, "aria-pressed": selected }, label),
 }));
 
 vi.mock("@subboost/ui/components/ui/input", () => ({
@@ -112,6 +125,7 @@ describe("ProxyGroupAdvancedPanel interactions", () => {
     vi.clearAllMocks();
     mocks.confirmDialog.mockResolvedValue(true);
     mocks.draggingKey = "node:US Source";
+    mocks.formFields = [];
     mocks.generatedProxyGroups = [
       { name: "Media", proxies: ["DIRECT", "US Source", "Japan Source"] },
       { name: "Select", proxies: ["US Source"] },
@@ -144,6 +158,30 @@ describe("ProxyGroupAdvancedPanel interactions", () => {
     };
   });
 
+  it("delegates regex field spacing to the shared FormField default", () => {
+    const tree = ProxyGroupAdvancedPanel({
+      target: { kind: "custom", id: "media", name: "Media" },
+      advanced: {},
+      onChange: vi.fn(),
+      rulesCount: 0,
+      rulesContent: null,
+    });
+
+    flattenElements(tree);
+
+    expect(
+      mocks.formFields.map((field) => ({
+        label: React.isValidElement(field.label)
+          ? (field.label.props as { children?: React.ReactNode }).children
+          : field.label,
+        className: field.className,
+      })),
+    ).toEqual([
+      { label: "包含正则（可选）", className: undefined },
+      { label: "排除正则（可选）", className: undefined },
+    ]);
+  });
+
   it("fires native source, region, member, and drag callbacks", () => {
     const onChange = vi.fn();
     const tree = ProxyGroupAdvancedPanel({
@@ -163,7 +201,7 @@ describe("ProxyGroupAdvancedPanel interactions", () => {
     const sourceCheckboxes = elements.filter((element) => element.type === "input" && element.props.type === "checkbox");
     const textInputs = elements.filter((element) => element.type === "input" && element.props.type !== "checkbox");
     const regionButtons = elements.filter(
-      (element) => element.type === "button" && String(element.props.className || "").includes("rounded border px-2"),
+      (element) => element.type === "button" && typeof element.props["aria-pressed"] === "boolean",
     );
     const includedRows = elements.filter((element) => element.props.draggable);
     const excludeButton = elements.find((element) => element.type === "button" && element.props.title === "排除");

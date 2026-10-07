@@ -13,6 +13,7 @@ import {
 import { getModuleRuleOrderKey } from "@subboost/core/generator/module-rules";
 import { resolveProxyGroupModuleName } from "@subboost/core/proxy-group-name";
 import { resolveProxyGroupTargetName } from "@subboost/core/proxy-group-targets";
+import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
 import { collectCustomRoutingRuleSets } from "@subboost/core/rules/custom-routing-rule-sets";
 import { CustomRulesPreview } from "./visual-graph/custom-rules-preview";
 import { getDialerEmojiFromName } from "./visual-graph/emoji";
@@ -28,6 +29,7 @@ import {
 export function VisualGraph() {
   const {
     nodes,
+    nodeNameFilter,
     enabledProxyGroups,
     dialerProxyGroups,
     customRules,
@@ -44,6 +46,7 @@ export function VisualGraph() {
   } = useConfigStore(
     useShallow((state) => ({
       nodes: state.nodes,
+      nodeNameFilter: state.nodeNameFilter,
       enabledProxyGroups: state.enabledProxyGroups,
       dialerProxyGroups: state.dialerProxyGroups ?? [],
       customRules: state.customRules ?? [],
@@ -58,6 +61,18 @@ export function VisualGraph() {
       ruleProviderBaseUrl: state.ruleProviderBaseUrl,
       setProxyGroupOrder: state.setProxyGroupOrder,
     })),
+  );
+  const effectiveNodes = React.useMemo(
+    () => resolveNodeNameFilter(nodes, nodeNameFilter).effectiveNodes,
+    [nodeNameFilter, nodes],
+  );
+  const rawNodeNameSet = React.useMemo(
+    () => new Set(nodes.map((node) => node.name)),
+    [nodes],
+  );
+  const effectiveNodeNameSet = React.useMemo(
+    () => new Set(effectiveNodes.map((node) => node.name)),
+    [effectiveNodes],
   );
 
   const enabledDialerProxyGroups = React.useMemo(
@@ -110,13 +125,20 @@ export function VisualGraph() {
     },
     [proxyGroupNameOverrides],
   );
+  const moduleNames = React.useMemo(
+    () =>
+      Object.fromEntries(
+        PROXY_GROUP_MODULES.map((module) => [module.id, resolveModuleName(module)]),
+      ),
+    [resolveModuleName],
+  );
 
   // 节点名称列表
   // 生成当前配置下的代理组（用于显示“默认选中项”）
   const generatedProxyGroups = React.useMemo(() => {
-    if (nodes.length === 0) return [];
+    if (effectiveNodes.length === 0) return [];
     return generateProxyGroups({
-      nodes,
+      nodes: effectiveNodes,
       enabledModules: enabledProxyGroups,
       ruleProviderBaseUrl,
       testUrl,
@@ -128,7 +150,7 @@ export function VisualGraph() {
       proxyGroupNameOverrides,
     });
   }, [
-    nodes,
+    effectiveNodes,
     enabledProxyGroups,
     ruleProviderBaseUrl,
     testUrl,
@@ -154,10 +176,6 @@ export function VisualGraph() {
       if (!g || typeof g.name !== "string" || !g.name.trim()) continue;
       customByName.set(g.name.trim(), g);
     }
-    const moduleNames = Object.fromEntries(
-      PROXY_GROUP_MODULES.map((module) => [module.id, resolveModuleName(module)]),
-    );
-
     const base = generatedProxyGroups.map((g) => {
       const groupName = typeof g.name === "string" ? g.name.trim() : "";
       const mod = groupName ? moduleByName.get(groupName) : undefined;
@@ -259,8 +277,15 @@ export function VisualGraph() {
             category: "dialer",
             rules: [],
             dialer: {
-              relayNodes: Array.isArray(g.relayNodes) ? g.relayNodes : [],
-              targetNodes: Array.isArray(g.targetNodes) ? g.targetNodes : [],
+              relayNodes: Array.isArray(g.relayNodes)
+                ? g.relayNodes.filter(
+                    (name) =>
+                      !rawNodeNameSet.has(name) || effectiveNodeNameSet.has(name),
+                  )
+                : [],
+              targetNodes: Array.isArray(g.targetNodes)
+                ? g.targetNodes.filter((name) => effectiveNodeNameSet.has(name))
+                : [],
               type: g.type,
             },
           }));
@@ -314,11 +339,14 @@ export function VisualGraph() {
   }, [
     activeCustomProxyGroups,
     enabledDialerProxyGroups,
+    effectiveNodeNameSet,
+    rawNodeNameSet,
     generatedProxyGroups,
     customRuleSets,
     builtinRuleEdits,
     proxyGroupAdvanced,
     proxyGroupOrder,
+    moduleNames,
     resolveModuleName,
   ]);
 
@@ -382,9 +410,9 @@ export function VisualGraph() {
       .sort((a, b) => a.order - b.order);
   }, [enabledDialerProxyGroups.length, displayGroups]);
 
-  if (nodes.length === 0) {
+  if (effectiveNodes.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-white/50">
+      <div className="flex flex-col items-center justify-center h-full text-fg-50">
         <Network className="h-12 w-12 mb-3 opacity-50" />
         <p className="text-sm">添加节点后显示可视化关系图</p>
       </div>
@@ -394,11 +422,11 @@ export function VisualGraph() {
   return (
     <div ref={containerRef} className="h-full overflow-auto p-4 space-y-3">
       {/* 图例 */}
-      <div className="flex flex-wrap gap-2 pb-3 border-b border-white/10">
+      <div className="flex flex-wrap gap-2 pb-3 border-b border-ink/10">
         {legendItems.map((item) => (
           <div
             key={item.id}
-            className="flex items-center gap-1.5 text-[10px] text-white/60"
+            className="flex items-center gap-1.5 text-[10px] text-fg-60"
           >
             <div className={cn("w-2.5 h-2.5 rounded", item.dotClass)} />
             <span>{item.label}</span>
@@ -408,23 +436,23 @@ export function VisualGraph() {
 
       {/* 统计信息 */}
       <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-lg bg-white/5 p-2">
-          <div className="text-lg font-bold text-primary-500">
-            {nodes.length}
+        <div className="rounded-lg bg-ink/5 p-2">
+          <div className="text-lg font-bold text-preview-node-count-fg">
+            {effectiveNodes.length}
           </div>
-          <div className="text-[10px] text-white/50">节点</div>
+          <div className="text-[10px] text-fg-50">节点</div>
         </div>
-        <div className="rounded-lg bg-white/5 p-2">
-          <div className="text-lg font-bold text-green-500">
+        <div className="rounded-lg bg-ink/5 p-2">
+          <div className="text-lg font-bold text-preview-group-count-fg">
             {displayGroups.length}
           </div>
-          <div className="text-[10px] text-white/50">代理组</div>
+          <div className="text-[10px] text-fg-50">代理组</div>
         </div>
-        <div className="rounded-lg bg-white/5 p-2">
+        <div className="rounded-lg bg-ink/5 p-2">
           <div className="text-lg font-bold text-purple-500">
             {displayGroups.reduce((acc, g) => acc + g.rules.length, 0)}
           </div>
-          <div className="text-[10px] text-white/50">规则集</div>
+          <div className="text-[10px] text-fg-50">规则集</div>
         </div>
       </div>
 
@@ -443,25 +471,25 @@ export function VisualGraph() {
 
       {/* 节点列表预览 */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs font-medium text-white/60">
+        <div className="flex items-center justify-between text-xs font-medium text-fg-60">
           <span className="flex items-center gap-2">
             <Server className="h-3.5 w-3.5" />
             节点列表
           </span>
-          <span className="text-[10px] text-white/50">
-            共 {nodes.length} 个
+          <span className="text-[10px] text-fg-50">
+            共 {effectiveNodes.length} 个
           </span>
         </div>
 
-        <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg bg-white/5 p-2">
-          {nodes.slice(0, 50).map((node, idx) => (
+        <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg bg-ink/5 p-2">
+          {effectiveNodes.slice(0, 50).map((node, idx) => (
             <div
               key={node.name + idx}
-              className="flex items-center gap-2 rounded-md px-2 py-1 text-[10px] hover:bg-white/5"
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-[10px] hover:bg-ink/5"
             >
               <div
                 className={cn(
-                  "h-2 w-2 rounded-full flex-shrink-0 shadow-[0_0_0_3px_rgba(255,255,255,0.03)]",
+                  "h-2 w-2 rounded-full flex-shrink-0 shadow-[0_0_0_3px_color-mix(in_oklab,var(--ink)_3%,transparent)]",
                   node.type === "ss"
                     ? "bg-blue-400"
                     : node.type === "vmess"
@@ -478,7 +506,7 @@ export function VisualGraph() {
                 )}
               />
               <span
-                className="min-w-0 flex-1 truncate text-white/90 font-medium"
+                className="min-w-0 flex-1 truncate text-fg-90 font-medium"
                 title={node.name}
               >
                 {node.name}
@@ -486,9 +514,9 @@ export function VisualGraph() {
               <ProtocolBadge type={node.type} className="flex-shrink-0" />
             </div>
           ))}
-          {nodes.length > 50 && (
-            <div className="text-center text-[10px] text-white/50 py-1">
-              ... 还有 {nodes.length - 50} 个节点
+          {effectiveNodes.length > 50 && (
+            <div className="text-center text-[10px] text-fg-50 py-1">
+              ... 还有 {effectiveNodes.length - 50} 个节点
             </div>
           )}
         </div>
@@ -497,6 +525,8 @@ export function VisualGraph() {
       <CustomRulesPreview
         customRules={customRules}
         ruleSets={customRoutingRuleSets}
+        moduleNames={moduleNames}
+        customProxyGroups={activeCustomProxyGroups}
       />
     </div>
   );

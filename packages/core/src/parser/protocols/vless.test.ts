@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { configToYaml } from "../../generator/yaml";
+import type { ClashConfig } from "../../types/config";
 import { parseVLESS } from "./vless";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
@@ -95,7 +97,7 @@ describe("parseVLESS", () => {
     });
   });
 
-  it("parses Shadowrocket-style encoded authority and Reality defaults", () => {
+  it("parses Shadowrocket-style encoded authority and ordinary TLS aliases", () => {
     const encoded = Buffer.from(`prefix:${UUID}@shadowrocket.example.com:443`).toString("base64url");
     const node = parseVLESS(
       `vless://${encoded}?obfs=websocket&tls=1&xtls=2&obfsParam=cdn.example.com&path=/ws%3Fed%3D512#Shadowrocket`
@@ -117,6 +119,7 @@ describe("parseVLESS", () => {
         "max-early-data": 512,
       },
     });
+    expect(node).not.toHaveProperty("reality-opts");
 
     const encodedWithoutPrefix = Buffer.from(`${UUID}@shadow-simple.example.com:443`).toString("base64url");
     expect(parseVLESS(`vless://${encodedWithoutPrefix}?obfs=websocket&tls=1&xtls=1&tls-verification=false&remark=SimpleSR`)).toMatchObject({
@@ -124,9 +127,148 @@ describe("parseVLESS", () => {
       server: "shadow-simple.example.com",
       uuid: UUID,
       flow: "xtls-rprx-direct",
+      "client-fingerprint": "chrome",
       "skip-cert-verify": true,
       network: "ws",
     });
+  });
+
+  it("parses Shadowrocket ordinary TLS with compound ECH through generated YAML", () => {
+    const encoded = Buffer.from(`:${UUID}@vless-ech.example.com:443`).toString("base64url");
+    const ech = encodeURIComponent("cloudflare-ech.com+https://203.0.113.53/dns-query");
+    const obfsParam = encodeURIComponent(
+      JSON.stringify({
+        "": {
+          xPaddingHeader: "X-Request-Signature",
+          xPaddingPlacement: "queryInHeader",
+          xPaddingObfsMode: true,
+          xPaddingKey: "_tk",
+          xPaddingMethod: "tokenish",
+        },
+        hOsT: "cdn.example.com",
+        "X-Test": "yes",
+        Numeric: 1,
+        Enabled: true,
+      })
+    );
+    const node = parseVLESS(
+      `vless://${encoded}?obfs=xhttp&tls=1&peer=front.example.com&path=%2Fxhttp&obfsParam=${obfsParam}&ech=${ech}#ShadowrocketECH`
+    );
+
+    expect(node).toMatchObject({
+      name: "ShadowrocketECH",
+      type: "vless",
+      server: "vless-ech.example.com",
+      port: 443,
+      uuid: UUID,
+      tls: true,
+      servername: "front.example.com",
+      "client-fingerprint": "chrome",
+      network: "xhttp",
+      "xhttp-opts": {
+        path: "/xhttp",
+        host: "cdn.example.com",
+        headers: {
+          "X-Test": "yes",
+        },
+      },
+      "ech-opts": {
+        enable: true,
+        "query-server-name": "cloudflare-ech.com",
+      },
+    });
+    expect(node).not.toHaveProperty("reality-opts");
+    expect(Object.prototype.hasOwnProperty.call(node["xhttp-opts"] || {}, "")).toBe(false);
+    expect(node["xhttp-opts"]?.headers).not.toHaveProperty("Numeric");
+    expect(node["xhttp-opts"]?.headers).not.toHaveProperty("Enabled");
+
+    const generated = configToYaml({
+      proxies: [node],
+      "proxy-groups": [],
+      "rule-providers": {},
+      rules: [],
+    } as unknown as ClashConfig);
+    expect(generated).toContain("ech-opts: {enable: true, query-server-name: cloudflare-ech.com}");
+    expect(generated).not.toContain("config: cloudflare-ech.com+");
+    expect(generated).not.toContain("reality-opts");
+    expect(generated).not.toContain("xPaddingHeader");
+    expect(generated).not.toContain("Numeric");
+  });
+
+  it("keeps explicit xHTTP host and headers ahead of Shadowrocket obfsParam fallbacks", () => {
+    const encoded = Buffer.from(`${UUID}@xhttp-precedence.example.com:443`).toString("base64url");
+    const obfsParam = encodeURIComponent(
+      JSON.stringify({ Host: "fallback.example.com", "X-Test": "fallback", "X-Fallback": "yes" })
+    );
+    const explicitHeaders = encodeURIComponent(JSON.stringify({ "X-Test": "explicit", "X-Explicit": "yes" }));
+
+    expect(
+      parseVLESS(
+        `vless://${encoded}?obfs=xhttp&tls=1&xhttpHost=explicit.example.com&xhttpHeaders=${explicitHeaders}&obfsParam=${obfsParam}#XHTTPPrecedence`
+      )
+    ).toMatchObject({
+      "xhttp-opts": {
+        host: "explicit.example.com",
+        headers: {
+          "X-Test": "explicit",
+          "X-Fallback": "yes",
+          "X-Explicit": "yes",
+        },
+      },
+    });
+
+    expect(
+      parseVLESS(`vless://${encoded}?obfs=xhttp&tls=1&obfsParam=legacy.example.com#XHTTPLegacy`)
+    ).toMatchObject({
+      "xhttp-opts": {
+        host: "legacy.example.com",
+      },
+    });
+
+    const duplicateHostObfsParam = encodeURIComponent(
+      JSON.stringify({ Host: "first.example.com", host: "second.example.com" })
+    );
+    expect(
+      parseVLESS(
+        `vless://${encoded}?obfs=xhttp&tls=1&obfsParam=${duplicateHostObfsParam}#XHTTPDuplicateHost`
+      )
+    ).toMatchObject({
+      "xhttp-opts": {
+        host: "first.example.com",
+      },
+    });
+  });
+
+  it("infers implicit Shadowrocket Reality only from a public key", () => {
+    const encoded = Buffer.from(`${UUID}@shadow-reality.example.com:443`).toString("base64url");
+    const publicKey = "A".repeat(43);
+
+    expect(parseVLESS(`vless://${encoded}?tls=1&pbk=${publicKey}#ImplicitReality`)).toMatchObject({
+      name: "ImplicitReality",
+      tls: true,
+      "client-fingerprint": "chrome",
+      "reality-opts": {
+        "public-key": publicKey,
+      },
+    });
+    expect(() =>
+      parseVLESS(
+        `vless://${encoded}?tls=1&pbk=${publicKey}&ech=${encodeURIComponent("cloudflare-ech.com")}#BadRealityECH`
+      )
+    ).toThrow("VLESS 启用 ECH 需要 security=tls");
+
+    const explicitTls = parseVLESS(
+      `vless://${encoded}?security=tls&tls=1&pbk=${publicKey}&ech=${encodeURIComponent("cloudflare-ech.com")}#ExplicitTLS`
+    );
+    expect(explicitTls).toMatchObject({
+      tls: true,
+      "ech-opts": {
+        enable: true,
+        "query-server-name": "cloudflare-ech.com",
+      },
+    });
+    expect(explicitTls).not.toHaveProperty("reality-opts");
+    expect(explicitTls).not.toHaveProperty("client-fingerprint");
   });
 
   it("parses TCP, H2, HTTP Upgrade, and Reality detail variants", () => {

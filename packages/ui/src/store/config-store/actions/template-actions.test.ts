@@ -38,6 +38,7 @@ describe("createTemplateActions", () => {
       builtinRuleEdits: { "module:ai:anthropic": { enabled: false } },
       ruleOrder: ["module:ai:openai"],
       moduleRuleEditWarningAccepted: true,
+      nodeNameFilter: { enabled: true, excludeRegexes: ["套餐到期"] },
     });
 
     actions.setTemplate("standard");
@@ -52,6 +53,7 @@ describe("createTemplateActions", () => {
       builtinRuleEdits: {},
       ruleOrder: [],
       moduleRuleEditWarningAccepted: false,
+      nodeNameFilter: { enabled: true, excludeRegexes: ["套餐到期"] },
     });
 
     actions.setAppliedTemplateId(null);

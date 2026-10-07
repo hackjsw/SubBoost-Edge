@@ -16,16 +16,16 @@ import { cn } from "@subboost/ui/lib/utils";
 import type { CustomRule } from "@subboost/core/types/config";
 import type {
   CustomRuleListItem,
-  ProxyGroupRuleTarget,
+  ProxyGroupRuleTargetOption,
   ProxyGroupRuleTargetKind,
 } from "./proxy-group-rule-targets";
 
-export type RuleSetMoveTarget = ProxyGroupRuleTarget & { kind: "module" | "custom" };
+export type RuleSetMoveTarget = ProxyGroupRuleTargetOption & { kind: "module" | "custom" };
 export type ProxyGroupRuleRowState = "active" | "moved" | "removed";
 
 type RuleSource = "preset" | "custom" | "manual" | "experimental";
 
-export function isRuleSetMoveTarget(target: ProxyGroupRuleTarget): target is RuleSetMoveTarget {
+export function isRuleSetMoveTarget(target: ProxyGroupRuleTargetOption): target is RuleSetMoveTarget {
   return target.kind === "module" || target.kind === "custom";
 }
 
@@ -62,7 +62,7 @@ export function ProxyGroupRuleRow({
   return (
     <div
       className={cn(
-        "proxy-group-rule-row grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 rounded border border-white/10 bg-white/[0.04] px-2 py-2",
+        "proxy-group-rule-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 rounded border border-white/10 bg-white/[0.04] px-2 py-2",
         isInactive &&
           (isMoved
             ? "border-orange-500/25 bg-orange-500/10"
@@ -153,9 +153,9 @@ export function ProxyGroupManualRuleRow({
   onRemove,
 }: {
   item: CustomRuleListItem;
-  targets: ProxyGroupRuleTarget[];
+  targets: ProxyGroupRuleTargetOption[];
   currentTargetName: string;
-  onMove: (item: CustomRuleListItem, target: ProxyGroupRuleTarget) => void;
+  onMove: (item: CustomRuleListItem, target: ProxyGroupRuleTargetOption) => void;
   onRemove: (item: CustomRuleListItem) => void;
 }) {
   const { rule } = item;
@@ -210,10 +210,10 @@ export function ProxyGroupRuleMoveMenu({
 }: {
   title: string;
   ariaLabel: string;
-  targets: ProxyGroupRuleTarget[];
+  targets: ProxyGroupRuleTargetOption[];
   kinds: ProxyGroupRuleTargetKind[];
-  currentTarget?: Partial<ProxyGroupRuleTarget>;
-  onMove: (target: ProxyGroupRuleTarget) => void | Promise<void>;
+  currentTarget?: Partial<ProxyGroupRuleTargetOption>;
+  onMove: (target: ProxyGroupRuleTargetOption) => void | Promise<void>;
 }) {
   return (
     <DropdownMenu>
@@ -322,7 +322,10 @@ function NoResolveBadge() {
   );
 }
 
-function isCurrentTarget(target: ProxyGroupRuleTarget, currentTarget?: Partial<ProxyGroupRuleTarget>) {
+function isCurrentTarget(
+  target: ProxyGroupRuleTargetOption,
+  currentTarget?: Partial<ProxyGroupRuleTargetOption>,
+) {
   if (!currentTarget) return false;
   if (currentTarget.kind && currentTarget.id) {
     return currentTarget.kind === target.kind && currentTarget.id === target.id;

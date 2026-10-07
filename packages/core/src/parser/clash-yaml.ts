@@ -2,13 +2,15 @@
  * Clash YAML 配置解析器
  */
 
-import yaml from "js-yaml";
-import type { ParsedNode, ParseResult, UnknownNodeType, XHttpOpts } from "@subboost/core/types/node";
+import { loadSubscriptionYaml } from "./yaml-scalars";
+import type { BaseNode, ParsedNode, ParseResult, UnknownNodeType, XHttpOpts } from "@subboost/core/types/node";
 import { normalizeRealityShortId } from "@subboost/core/mihomo/reality";
 import { canonicalizeParsedNode } from "./canonical-fields";
 import { normalizePortsSpecValue, parsePortNumber, pickStablePortFromPorts } from "./port-spec";
 import { normalizeSsPlugin } from "./protocols/ss";
 import { splitWsPathEarlyData } from "./ws-early-data";
+import { getNodeEndpointError } from "../node-endpoint";
+import { MIHOMO_STRING_SCALAR_FIELDS, normalizeMihomoStringScalar } from "../mihomo/string-scalar";
 
 interface ClashConfig {
   proxies?: Record<string, unknown>[];
@@ -106,6 +108,53 @@ function repairRootFlowProxyListIndent(input: string): string {
   return lines.join("\n");
 }
 
+function repairInlineListIndent(input: string): string {
+  // 修复常见的“列表项首行内联 key（- name: xxx）但后续 key 又多缩进”的不合法 YAML。
+  // 逐个列表项消费其后续块，确保每一行最多检查一次，避免大型订阅退化为 O(n²)。
+  const lines = input.split(/\r?\n/);
+  const out: string[] = [];
+
+  for (let index = 0; index < lines.length; ) {
+    const line = lines[index];
+    const match = line.match(/^(\s*)-\s*(name\s*:\s*.+)$/);
+    if (!match) {
+      out.push(line);
+      index += 1;
+      continue;
+    }
+
+    const dashIndent = match[1].length;
+    const keyIndent = dashIndent + 2;
+    let minIndent = Number.POSITIVE_INFINITY;
+    let blockEnd = index + 1;
+
+    while (blockEnd < lines.length) {
+      const nextLine = lines[blockEnd];
+      const trimmed = nextLine.trim();
+      if (!trimmed || trimmed.startsWith("#")) {
+        blockEnd += 1;
+        continue;
+      }
+
+      const indent = countLeadingSpaces(nextLine);
+      if (indent <= dashIndent) break;
+      minIndent = Math.min(minIndent, indent);
+      blockEnd += 1;
+    }
+
+    if (minIndent !== Number.POSITIVE_INFINITY && minIndent > keyIndent) {
+      out.push(`${" ".repeat(dashIndent)}-`);
+      out.push(`${" ".repeat(minIndent)}${match[2]}`);
+    } else {
+      out.push(line);
+    }
+    out.push(...lines.slice(index + 1, blockEnd));
+    index = blockEnd;
+  }
+
+  return out.join("\n");
+}
+
 /**
  * 解析 Clash YAML 配置
  */
@@ -116,56 +165,7 @@ export function parseClashYaml(content: string): ParseResult {
   try {
     const normalizeTabs = (s: string) => s.replace(/\t/g, "  ");
 
-    const repairInlineListIndent = (input: string): string => {
-      // 修复常见的“列表项首行内联 key（- name: xxx）但后续 key 又多缩进”的不合法 YAML
-      // 例如（不合法）：
-      //  - name: ss-A
-      //     type: ss
-      // 修复为（合法）：
-      //  -
-      //     name: ss-A
-      //     type: ss
-      const lines = input.split(/\r?\n/);
-      const out: string[] = [];
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const m = line.match(/^(\s*)-\s*(name\s*:\s*.+)$/);
-        if (!m) {
-          out.push(line);
-          continue;
-        }
-
-        const dashIndent = m[1].length;
-        const namePair = m[2];
-        const keyIndent = dashIndent + 2;
-
-        // 计算该列表项后续块内最小缩进（用于对齐 name/type/server 等）
-        let minIndent = Number.POSITIVE_INFINITY;
-        for (let j = i + 1; j < lines.length; j++) {
-          const l = lines[j];
-          if (!l.trim() || l.trim().startsWith("#")) continue;
-
-          const indent = (l.match(/^(\s*)/)?.[1].length ?? 0);
-          // 缩进回退到当前列表项的 '-' 缩进（或更浅）时，说明已经离开该列表项
-          if (indent <= dashIndent) break;
-          minIndent = Math.min(minIndent, indent);
-        }
-
-        // 仅当后续 key 明显比内联 key 更深时才修复，避免误改合法 YAML
-        if (minIndent !== Number.POSITIVE_INFINITY && minIndent > keyIndent) {
-          out.push(`${" ".repeat(dashIndent)}-`);
-          out.push(`${" ".repeat(minIndent)}${namePair}`);
-          continue;
-        }
-
-        out.push(line);
-      }
-
-      return out.join("\n");
-    };
-
-    const tryLoad = (raw: string): unknown => yaml.load(raw) as unknown;
+    const tryLoad = loadSubscriptionYaml;
     const normalizedContent = normalizeClashYamlScalarText(normalizeTabs(content));
 
     let parsed: unknown;
@@ -272,8 +272,21 @@ function normalizeNode(proxy: Record<string, unknown>): ParsedNode | null {
   }
 
   const name = (proxy.name as string) || "未命名节点";
-  if (type === "direct" || type === "dns") {
+  proxy = { ...proxy };
+  for (const field of MIHOMO_STRING_SCALAR_FIELDS) {
+    if (proxy[field] === undefined || proxy[field] === null) continue;
+    const value = normalizeMihomoStringScalar(proxy[field]);
+    if (value === undefined) throw new Error(`${field} 必须是字符串或可无损表示的整数`);
+    proxy[field] = value;
+  }
+  if (type === "direct" || type === "dns" || type === "reject") {
     return { ...proxy, name, type } as unknown as ParsedNode;
+  }
+
+  if (type === "wireguard" && Array.isArray(proxy.peers)) {
+    proxy.peers = proxy.peers.map((peer) => peer && typeof peer === "object" && !Array.isArray(peer)
+      ? { ...peer, port: parsePortNumber(peer.port) }
+      : peer);
   }
 
   const server = proxy.server as string;
@@ -284,19 +297,17 @@ function normalizeNode(proxy: Record<string, unknown>): ParsedNode | null {
   const shouldNormalizePorts = (isHysteria2 || isHysteria) && ports;
   const port = parsePortNumber(proxy.port) ?? (supportsPortsOnly && ports ? pickStablePortFromPorts(ports) : undefined);
 
-  if (!server || port === undefined) {
-    throw new Error("缺少服务器地址或端口无效");
-  }
-
   // 透传上游字段：避免因字段映射表不完整而丢失协议关键参数（如 hy2 ports / vless client-fingerprint 等）
   const baseNode = {
     ...proxy,
     name,
     type,
-    server,
-    port,
+    ...(server !== undefined ? { server } : {}),
+    ...(proxy.port !== undefined || port !== undefined ? { port } : {}),
     ...(shouldNormalizePorts ? { ports } : {}),
-  };
+  } as BaseNode;
+  const endpointError = getNodeEndpointError(baseNode);
+  if (endpointError) throw new Error(endpointError);
   applyWsEarlyDataInPlace(baseNode as unknown as Record<string, unknown>);
 
   switch (type) {
@@ -506,6 +517,8 @@ function normalizeNode(proxy: Record<string, unknown>): ParsedNode | null {
     case "mieru":
     case "masque":
     case "sudoku":
+    case "wireguard":
+    case "trusttunnel":
       return { ...(baseNode as Record<string, unknown>), type } as unknown as ParsedNode;
 
     default:

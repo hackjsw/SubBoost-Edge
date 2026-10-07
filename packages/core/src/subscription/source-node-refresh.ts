@@ -401,7 +401,8 @@ export function mergeParsedSourceNodes(
 
     if (sourceIds.includes(sourceId)) {
       hadExistingSourceNodes = true;
-      const originName = resolveOriginName(node, { allowDisplayNameFallback }) ?? originOf(node);
+      const previousOriginName = originOf(node);
+      const originName = resolveOriginName(node, { allowDisplayNameFallback }) ?? previousOriginName;
       const fresh = originName ? takeFresh(originName) : null;
 
       const base = withoutNodeSourceIds(node, removed);
@@ -410,7 +411,7 @@ export function mergeParsedSourceNodes(
         continue;
       }
 
-      const keepUserName = originName ? isUserRenamed(node.name, originName) : false;
+      const keepUserName = previousOriginName ? isUserRenamed(node.name, previousOriginName) : false;
       const desiredName = keepUserName ? node.name : fresh.name;
       const extraIds = base ? getNodeSourceIds(base) : sourceIds.filter((id) => id !== sourceId);
 

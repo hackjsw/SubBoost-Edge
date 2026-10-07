@@ -144,7 +144,7 @@ proxies:
       type: "trojan",
     });
     expect(parseClashYaml("").errors).toEqual(["空的配置文件"]);
-    expect(parseClashYaml("proxies:\n  - name: Bad\n    type: ss\n    port: bad").errors[0]).toContain("缺少服务器地址");
+    expect(parseClashYaml("proxies:\n  - name: Bad\n    type: ss\n    port: bad").errors[0]).toContain("缺少有效服务器地址");
     expect(parseClashYaml("proxies: [").errors[0]).toContain("YAML 解析错误");
     expect(parseClashYaml("just text").errors[0]).toContain("无法识别为 Clash YAML");
   });
@@ -207,6 +207,25 @@ proxies:
     expect(mixed.nodes.find((node) => node.name === "Mieru")).toMatchObject({ type: "mieru" });
     expect(mixed.errors[0]).toContain('节点 "Bad" 解析失败');
   });
+
+  it("repairs large malformed proxy lists without quadratic scanning", () => {
+    const count = 2_000;
+    const rows = ["proxies:"];
+    for (let index = 0; index < count; index += 1) {
+      rows.push(`  - name: Node ${index}`);
+      rows.push("      type: ss");
+      rows.push(`      server: node-${index}.example.com`);
+      rows.push("      port: 8388");
+    }
+
+    const startedAt = performance.now();
+    const result = parseClashYaml(rows.join("\n"));
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(result.errors).toEqual([]);
+    expect(result.nodes).toHaveLength(count);
+    expect(elapsedMs).toBeLessThan(1_500);
+  }, 10_000);
 
   it("parses consistently indented root flow proxy lists", () => {
     for (const spaces of [0, 1, 2, 4]) {

@@ -41,25 +41,88 @@ describe("config store history actions", () => {
     const store = createStore({
       generatedYaml: "current",
       generatedYamlError: "bad",
+      nodeNameFilter: { enabled: true, excludeRegexes: ["expire"] },
       history,
       historyIndex: history.length - 1,
     });
     const actions = createHistoryActions(store.set as any, store.get as any);
 
     actions.pushHistory();
-    expect((store.state().history as string[])).toHaveLength(50);
+    expect((store.state().history as unknown[])).toHaveLength(50);
     expect(store.state().historyIndex).toBe(49);
-    expect((store.state().history as string[]).at(-1)).toBe("current");
+    expect((store.state().history as unknown[]).at(-1)).toEqual({
+      yaml: "current",
+      nodeNameFilter: { enabled: true, excludeRegexes: ["expire"] },
+    });
 
     actions.undo();
-    expect(store.state()).toMatchObject({ historyIndex: 48, generatedYaml: "yaml-54", generatedYamlError: null });
+    expect(store.state()).toMatchObject({
+      historyIndex: 48,
+      generatedYaml: "yaml-54",
+      generatedYamlError: null,
+      nodeNameFilter: { enabled: true, excludeRegexes: ["expire"] },
+    });
 
     actions.redo();
-    expect(store.state()).toMatchObject({ historyIndex: 49, generatedYaml: "current", generatedYamlError: null });
+    expect(store.state()).toMatchObject({
+      historyIndex: 49,
+      generatedYaml: "current",
+      generatedYamlError: null,
+      nodeNameFilter: { enabled: true, excludeRegexes: ["expire"] },
+    });
 
     const emptyStore = createStore({ generatedYaml: "", history: [], historyIndex: -1 });
     createHistoryActions(emptyStore.set as any, emptyStore.get as any).pushHistory();
     expect(emptyStore.set).not.toHaveBeenCalled();
+  });
+
+  it("restores node-name filters from new snapshots and supports legacy string entries", () => {
+    const store = createStore({
+      generatedYaml: "filtered",
+      generatedYamlError: null,
+      nodeNameFilter: { enabled: true, excludeRegexes: ["test"] },
+      history: [
+        "legacy yaml",
+        {
+          yaml: "unfiltered",
+          nodeNameFilter: { enabled: false, excludeRegexes: [] },
+        },
+        {
+          yaml: "filtered",
+          nodeNameFilter: { enabled: true, excludeRegexes: ["test"] },
+        },
+      ],
+      historyIndex: 2,
+    });
+    const actions = createHistoryActions(store.set as any, store.get as any);
+
+    actions.undo();
+    expect(store.state()).toMatchObject({
+      historyIndex: 1,
+      generatedYaml: "unfiltered",
+      nodeNameFilter: { enabled: false, excludeRegexes: [] },
+    });
+
+    actions.undo();
+    expect(store.state()).toMatchObject({
+      historyIndex: 0,
+      generatedYaml: "legacy yaml",
+      nodeNameFilter: { enabled: false, excludeRegexes: [] },
+    });
+
+    actions.redo();
+    expect(store.state()).toMatchObject({
+      historyIndex: 1,
+      generatedYaml: "unfiltered",
+      nodeNameFilter: { enabled: false, excludeRegexes: [] },
+    });
+
+    actions.redo();
+    expect(store.state()).toMatchObject({
+      historyIndex: 2,
+      generatedYaml: "filtered",
+      nodeNameFilter: { enabled: true, excludeRegexes: ["test"] },
+    });
   });
 
   it("returns current state at undo/redo boundaries and resets to initial state", () => {
@@ -72,6 +135,9 @@ describe("config store history actions", () => {
     expect(store.state()).toEqual({ generatedYaml: "only", history: ["only"], historyIndex: 0 });
 
     actions.reset();
-    expect(store.state()).toEqual(expect.objectContaining(initialState));
+    expect(store.state()).toEqual(expect.objectContaining({ ...initialState, draftRevision: 1 }));
+    expect(store.state()).toMatchObject({
+      nodeNameFilter: { enabled: false, excludeRegexes: [] },
+    });
   });
 });

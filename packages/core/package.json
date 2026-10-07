@@ -15,6 +15,7 @@
     "./mihomo/*": "./src/mihomo/*.ts",
     "./node-name-template": "./src/node-name-template.ts",
     "./node-identity": "./src/node-identity.ts",
+    "./node-endpoint": "./src/node-endpoint.ts",
     "./parser": "./src/parser/index.ts",
     "./parser/*": "./src/parser/*.ts",
     "./proxy-group-advanced": "./src/proxy-group-advanced.ts",
@@ -31,7 +32,8 @@
     "./types/*": "./src/types/*.ts"
   },
   "dependencies": {
-    "js-yaml": "^4.2.0",
-    "peggy": "^5.1.0"
+    "js-yaml": "^4.3.2",
+    "peggy": "^5.1.0",
+    "safe-regex2": "^5.1.1"
   }
 }

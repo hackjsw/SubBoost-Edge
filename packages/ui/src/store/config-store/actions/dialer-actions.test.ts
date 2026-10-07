@@ -95,6 +95,25 @@ describe("createDialerActions", () => {
     ]);
   });
 
+  it("removes the group listener binding when deleting a dialer proxy group", () => {
+    const { actions, getState } = createHarness({
+      dialerProxyGroups: [
+        { id: "dialer-1", name: "Relay", enabled: true, relayNodes: [], targetNodes: [] },
+      ],
+      groupListeners: [
+        { id: "gl-1", target: { kind: "dialer", id: "dialer-1" }, port: 7891 },
+        { id: "gl-2", target: { kind: "custom", id: "custom-1" }, port: 7892 },
+      ],
+    });
+
+    actions.removeDialerProxyGroup("dialer-1");
+
+    expect(getState().dialerProxyGroups).toEqual([]);
+    expect(getState().groupListeners).toEqual([
+      { id: "gl-2", target: { kind: "custom", id: "custom-1" }, port: 7892 },
+    ]);
+  });
+
   it("adds and removes relay or target nodes without duplicates", () => {
     const { actions, getState } = createHarness({
       dialerProxyGroups: [

@@ -16,6 +16,7 @@ import { generateClashYaml } from "@subboost/core/generator";
 import { isMihomoSupportedProxyNode } from "@subboost/core/mihomo/proxy-sanitizer";
 import { buildGenerateOptionsFromConfig } from "@subboost/core/subscription/config-utils";
 import { filterDeletedStoredNodes } from "@subboost/core/subscription/source-node-refresh";
+import { resolveNodeNameFilter, validateNodeNameFilterConfig } from "@subboost/core/subscription/node-name-filter";
 import { getSubscriptionFormat, type SubscriptionFormat } from "@subboost/core/subscription/output-format";
 import { buildV2rayNResponse } from "@subboost/server-core/subscription/output-response";
 import { validateCronSecret } from "@subboost/server-core/cron-auth";
@@ -114,6 +115,8 @@ type StoredSubscription = {
   nextUpdateAt?: string;
   lastError?: string;
   staleUserInfoSourceIds?: string[];
+  // Served node count (after deletions and the node name filter), cached so listing does not rerun regexes.
+  activeNodeCount?: number;
 };
 
 type SubscriptionScheduleMetadata = {
@@ -279,6 +282,9 @@ function parseStoredSubscription(value: string): { record: StoredSubscription; m
       ...(typeof raw.nextUpdateAt === "string" ? { nextUpdateAt: raw.nextUpdateAt } : {}),
       ...(typeof raw.lastError === "string" ? { lastError: raw.lastError.slice(0, 500) } : {}),
       ...(Array.isArray(raw.staleUserInfoSourceIds) ? { staleUserInfoSourceIds: normalizeStringList(raw.staleUserInfoSourceIds) } : {}),
+      ...(typeof raw.activeNodeCount === "number" && Number.isInteger(raw.activeNodeCount) && raw.activeNodeCount >= 0
+        ? { activeNodeCount: raw.activeNodeCount }
+        : {}),
     },
   };
 }
@@ -436,7 +442,7 @@ async function fetchSourceImportTransport(
 
 function refreshFailureMessage(reason: string): string {
   if (reason === "all_sources_failed") return "所有订阅源更新失败";
-  if (reason === "empty_result") return "更新后没有可用节点";
+  if (reason === "empty_result") return "更新后没有可用节点（可能全部被删除或被自动处理规则排除）";
   if (reason === "node_quota_exceeded") return "更新后的节点数量超过限制";
   return "订阅更新失败";
 }
@@ -570,7 +576,9 @@ async function refreshStoredSubscription(
       ...record,
       yaml: result.generatedYaml,
       nodes: result.cacheEntry.nodes,
-      config: { ...record.config, sources: snapshot.savedSources },
+      // Carries node renames into relay groups, listeners and group member order.
+      config: result.refreshedConfig,
+      activeNodeCount: countServedNodes(result.cacheEntry.nodes, result.refreshedConfig),
       subscriptionInfo: result.cacheEntry.subscriptionInfo,
       staleUserInfoSourceIds: snapshot.staleUserInfoSourceIds ?? [],
       updatedAt: attemptedAt,
@@ -682,7 +690,7 @@ export function handleHealth(request: Request, env: WorkerEnv): Response {
   return json({
     status: "ok",
     service: "edgesub",
-    version: "2.6.0-edge.10",
+    version: "2.6.0-edge.11",
     kv: Boolean(env.SUB_KV),
     auth: Boolean(env.EDGE_ADMIN_PASSWORD?.trim()),
   });
@@ -766,12 +774,22 @@ function buildStoredSubscription(
   const yamlValidationError = validateStoredYaml(yaml);
   if (yamlValidationError) return { response: yamlValidationError };
   const config = isRecord(body.config) ? body.config : {};
+  if (config.nodeNameFilter !== undefined) {
+    const filterValidation = validateNodeNameFilterConfig(config.nodeNameFilter);
+    if (!filterValidation.ok) {
+      const first = filterValidation.errors[0];
+      return { response: json({ error: `自动处理规则无效：${first?.line ? `第 ${first.line} 行，` : ""}${first?.message ?? "格式错误"}` }, 400) };
+    }
+  }
   if (Array.isArray(body.nodes) || hasRefreshSource(config, urls)) {
     try {
       // Structured saves and refreshes share one generator. Client YAML can be
       // stale after an edit, so the saved node/config snapshot is authoritative.
       const options = buildGenerateOptionsFromConfig(config, { nodes });
-      if (nodes.length === 0 && !options.proxyProviders) return { response: json({ error: "请先导入有效节点或配置节点提供者" }, 400) };
+      if (options.nodes.length === 0 && !options.proxyProviders) {
+        const error = nodes.length > 0 ? "自动处理规则排除了全部节点，请调整规则" : "请先导入有效节点或配置节点提供者";
+        return { response: json({ error }, 400) };
+      }
       yaml = generateClashYaml(options);
     } catch (error) {
       return { response: json({ error: error instanceof Error ? error.message : "配置生成失败" }, 400) };
@@ -802,6 +820,7 @@ function buildStoredSubscription(
     conversionProfileId,
     subscriptionInfo: normalizeSubscriptionResponseInfo(body.subscriptionInfo) ?? {},
     autoUpdateInterval,
+    activeNodeCount: countServedNodes(nodes, config),
     createdAt: existing?.createdAt || createdAt,
     updatedAt: createdAt,
     ...(autoUpdateInterval ? { nextUpdateAt: nextUpdateTime(now, autoUpdateInterval) } : {}),
@@ -813,14 +832,24 @@ function buildStoredSubscription(
   return { record };
 }
 
-// Nodes the user removed in the editor stay in the record but are not served.
-function activeNodeCount(record: StoredSubscription): number {
-  const { deletedNodeNames, deletedNodes } = record.config;
-  return filterDeletedStoredNodes(
-    record.nodes,
+// Nodes the user removed in the editor, or excluded by the node name filter, stay
+// in the record but are not served.
+function countServedNodes(nodes: ParsedNode[], config: Record<string, unknown>): number {
+  const { deletedNodeNames, deletedNodes } = config;
+  const kept = filterDeletedStoredNodes(
+    nodes,
     Array.isArray(deletedNodeNames) ? deletedNodeNames.filter((name): name is string => typeof name === "string") : [],
     Array.isArray(deletedNodes) ? deletedNodes.filter(isRecord) : []
-  ).length;
+  );
+  try {
+    return resolveNodeNameFilter(kept, config.nodeNameFilter).effectiveCount;
+  } catch {
+    return kept.length;
+  }
+}
+
+function activeNodeCount(record: StoredSubscription): number {
+  return record.activeNodeCount ?? countServedNodes(record.nodes, record.config);
 }
 
 function publicUsage(info: SubscriptionResponseInfo) {
@@ -847,6 +876,11 @@ function publicSubscription(token: string, record: StoredSubscription, origin: s
       failureSourceState: record.lastError ?? null,
       lastFailedAt: record.lastError ? record.lastAttemptedAt ?? null : null,
       lastAttemptedAt: record.lastAttemptedAt ?? null,
+      // EdgeSub reports node quota overruns through lastError and never auto-disables updates.
+      nodeQuotaFailureCount: 0,
+      lastNodeQuotaExceededAt: null,
+      lastNodeQuotaActual: null,
+      lastNodeQuotaLimit: null,
       disabledAt: null,
       disabledReason: null,
       disabledPreviousInterval: null,

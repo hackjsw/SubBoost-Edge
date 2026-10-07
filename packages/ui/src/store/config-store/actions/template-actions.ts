@@ -79,7 +79,6 @@ export function createTemplateActions(
     // 应用模板配置（从模板库应用）
     applyTemplateConfig: (config: SubBoostTemplateConfig) => {
       if (!config || typeof config !== "object") return;
-
       setAndGenerateConfig((state) => {
         const ruleModel = normalizeRuleModelFromConfig(config);
         const hasCustomProxyGroups = Array.isArray(config.customProxyGroups);

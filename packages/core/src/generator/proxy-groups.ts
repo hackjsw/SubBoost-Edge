@@ -48,7 +48,7 @@ export const CATEGORY_INFO: Record<string, { name: string; order: number }> = {
   custom: { name: "自定义分组", order: 8 },
 };
 
-export interface GenerateOptions {
+export interface ProxyGroupGenerateOptions {
   nodes: ParsedNode[];
   proxyProviderNames?: string[];
   enabledModules: string[];
@@ -66,6 +66,9 @@ export interface GenerateOptions {
   proxyGroupNameOverrides?: Record<string, string>;
   ruleOrder?: string[];
 }
+
+/** @deprecated Use `ProxyGroupGenerateOptions`; retained for 2.x source compatibility. */
+export type GenerateOptions = ProxyGroupGenerateOptions;
 
 export { isSubscriptionInfoNodeName };
 
@@ -130,7 +133,7 @@ const PROXY_GROUP_ORDER: string[] = [
 /**
  * 生成代理组配置
  */
-export function generateProxyGroups(options: GenerateOptions): ProxyGroup[] {
+export function generateProxyGroups(options: ProxyGroupGenerateOptions): ProxyGroup[] {
   const {
     nodes,
     proxyProviderNames = [],
@@ -227,13 +230,14 @@ export function generateProxyGroups(options: GenerateOptions): ProxyGroup[] {
     groupType: ProxyGroupGroupType,
     proxies: string[],
     strategy?: LoadBalanceStrategy,
-    extraFields: Record<string, unknown> = providerUse
+    extraFields: Record<string, unknown> = providerUse,
+    groupTestUrl?: string,
   ): ProxyGroup =>
     buildTypedProxyGroup({
       name,
       groupType,
       proxies,
-      testUrl,
+      testUrl: groupType === "url-test" ? groupTestUrl || testUrl : testUrl,
       testInterval,
       strategy,
       extraFields,
@@ -289,6 +293,7 @@ export function generateProxyGroups(options: GenerateOptions): ProxyGroup[] {
               id: module.id,
               name: moduleName,
             }),
+            undefined, providerUse, advanced?.testUrl,
           ));
         break;
 
@@ -369,7 +374,7 @@ export function generateProxyGroups(options: GenerateOptions): ProxyGroup[] {
 
     if (usesFilteredNodeMembers(customGroup)) {
       if (customGroup.groupType === "url-test" || customGroup.groupType === "fallback") {
-        return createGeneratedProxyGroup(customGroup.name, customGroup.groupType, resolveCustom(filteredNodeNames), undefined, {});
+        return createGeneratedProxyGroup(customGroup.name, customGroup.groupType, resolveCustom(filteredNodeNames), undefined, {}, customGroup.advanced?.testUrl);
       }
       if (customGroup.groupType === "load-balance") {
         return createGeneratedProxyGroup(
@@ -389,7 +394,7 @@ export function generateProxyGroups(options: GenerateOptions): ProxyGroup[] {
       };
     }
     if (customGroup.groupType === "url-test") {
-      return createGeneratedProxyGroup(customGroup.name, customGroup.groupType, resolveCustom(filteredNodeNames));
+      return createGeneratedProxyGroup(customGroup.name, customGroup.groupType, resolveCustom(filteredNodeNames), undefined, providerUse, customGroup.advanced?.testUrl);
     }
     if (customGroup.groupType === "fallback") {
       return createGeneratedProxyGroup(customGroup.name, customGroup.groupType, resolveCustom(filteredNodeNames));
@@ -479,7 +484,7 @@ export function generateProxyGroups(options: GenerateOptions): ProxyGroup[] {
 /**
  * 生成规则提供者配置
  */
-export function generateRuleProviders(options: GenerateOptions): Record<string, RuleProvider> {
+export function generateRuleProviders(options: ProxyGroupGenerateOptions): Record<string, RuleProvider> {
   const {
     enabledModules,
     ruleProviderBaseUrl,

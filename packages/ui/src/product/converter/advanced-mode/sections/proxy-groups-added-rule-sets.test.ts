@@ -179,6 +179,7 @@ import {
   RULE_EDIT_TARGET_SELECT_TRIGGER_CLASS,
   RULE_EDIT_TRAILING_CONTROLS_CLASS,
   RULE_TARGET_SELECT_TRIGGER_CLASS,
+  RULE_TYPE_BADGE_CLASS,
 } from "./proxy-groups-rule-editor-layout";
 
 const moduleItem = {
@@ -286,6 +287,7 @@ describe("ProxyGroupsAddedRuleSets", () => {
     const { html } = renderAdded();
 
     expect(html).toContain("RULE-SET");
+    expect(html).toContain(RULE_TYPE_BADGE_CLASS);
     expect(html).toContain("geosite/rule-a");
     expect(html).toContain("geoip/rule-b");
     expect(html).toContain("Auto");
@@ -346,13 +348,27 @@ describe("ProxyGroupsAddedRuleSets", () => {
     expect(draftUpdaters.map((updater) => updater(null))).toEqual([null, null]);
   });
 
-  it("renders raw rule-set paths and hides rows targeting hidden modules", () => {
+  it("compacts MetaCubeX paths, preserves third-party URLs, and hides rows targeting hidden modules", () => {
     mocks.ruleSets = [
       {
         ...moduleItem,
-        key: "custom-rule-set:raw",
-        id: "raw",
-        path: "https://cdn.example/plain-rule.txt",
+        key: "custom-rule-set:metacubex",
+        id: "metacubex",
+        path: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/scholar.mrs",
+        noResolve: false,
+      },
+      {
+        ...moduleItem,
+        key: "custom-rule-set:metacubex-geoip",
+        id: "metacubex-geoip",
+        path: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geoip/private.mrs",
+        noResolve: true,
+      },
+      {
+        ...moduleItem,
+        key: "custom-rule-set:third-party",
+        id: "third-party",
+        path: "https://cdn.example/geosite/plain-rule.mrs",
         noResolve: false,
       },
       {
@@ -372,7 +388,10 @@ describe("ProxyGroupsAddedRuleSets", () => {
 
     const { html } = renderAdded();
 
-    expect(html).toContain("https://cdn.example/plain-rule.txt");
+    expect(html).toContain("geosite/scholar");
+    expect(html).toContain("geoip/private");
+    expect(html).not.toContain("https://github.com/MetaCubeX/meta-rules-dat");
+    expect(html).toContain("https://cdn.example/geosite/plain-rule.mrs");
     expect(html).not.toContain("geosite/hidden");
   });
 
@@ -673,58 +692,4 @@ describe("ProxyGroupsAddedRuleSets", () => {
     expect(stateMock.setters[1]).toHaveBeenCalledWith(null);
   });
 
-  it("ignores invalid saves and reports missing targets as conflicts", () => {
-    renderAdded({
-      0: moduleItem.key,
-      1: { path: "geosite/rule-a.mrs", targetValue: "bad", noResolve: false },
-    });
-    mocks.captures.buttons
-      .find((props: any) => props.title === "保存规则集")
-      .onClick();
-    expect(mocks.store.updateModuleRule).not.toHaveBeenCalled();
-
-    renderAdded({
-      0: moduleItem.key,
-      1: {
-        path: "geosite/rule-a.mrs",
-        targetValue: "module:missing",
-        noResolve: false,
-      },
-    });
-    mocks.captures.buttons
-      .find((props: any) => props.title === "保存规则集")
-      .onClick();
-    expect(mocks.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "规则集已存在", variant: "warning" }),
-    );
-
-    renderAdded({
-      0: customItem.key,
-      1: {
-        path: "geoip/rule-b.mrs",
-        targetValue: "custom:missing",
-        noResolve: false,
-      },
-    });
-    mocks.captures.buttons
-      .find((props: any) => props.title === "保存规则集")
-      .onClick();
-    expect(mocks.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "规则集已存在", variant: "warning" }),
-    );
-
-    renderAdded({
-      0: moduleItem.key,
-      1: { path: "   ", targetValue: "module:auto", noResolve: false },
-    });
-    mocks.captures.buttons
-      .find((props: any) => props.title === "保存规则集")
-      .onClick();
-    expect(mocks.store.updateModuleRule).not.toHaveBeenCalledWith(
-      "auto",
-      "rule-a",
-      expect.objectContaining({ path: "" }),
-    );
-
-  });
 });

@@ -182,6 +182,8 @@ function HomeSurfaceInner({ adapter }: Props) {
   const isLoadingEditingSubscription = useEditingSubscriptionLoader({
     editSubscriptionId,
     enabled: authChecked,
+    userId,
+    authChecked,
     loadSubscription: adapter?.loadSubscription,
     loginHref: adapter?.loginHref ?? adapter?.subscription?.loginHref,
     setCopied,

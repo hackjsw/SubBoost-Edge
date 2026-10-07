@@ -15,7 +15,6 @@ import {
   getCustomRuleOrderKey,
   isCustomRuleType,
   listEditableRuleOrderKeys,
-  reconcileRuleOrder,
 } from "./custom-rule-utils";
 import type { CustomProxyGroup, CustomRule, CustomRuleSet } from "@subboost/core/types/config";
 
@@ -29,7 +28,7 @@ describe("custom routing rule set helpers", () => {
     expect(parseRuleSetTargetValue("other:select")).toBeNull();
 
     expect(extractRuleSetPathFromUrl("https://cdn.example/rules/geosite/openai.mrs?token=1")).toBe(
-      "geosite/openai.mrs"
+      "https://cdn.example/rules/geosite/openai.mrs?token=1"
     );
     expect(extractRuleSetPathFromUrl("plain/rule.txt")).toBe("plain/rule.txt");
     expect(normalizeRuleSetPathInput(" /geoip/cn.mrs ")).toBe("geoip/cn.mrs");
@@ -98,7 +97,7 @@ describe("custom routing rule set helpers", () => {
           source: { kind: "custom-rule-set", id: "custom-rule" },
           id: "custom-rule",
           name: "custom-rule",
-          path: "geosite/custom.mrs",
+          path: "https://cdn.example/geosite/custom.mrs",
           target: expect.objectContaining({ id: "custom-a", value: "custom:custom-a" }),
           noResolve: true,
         }),
@@ -153,15 +152,6 @@ describe("custom rule id and order helpers", () => {
       `custom-rule:${ruleWithoutId.id}`,
       "custom-rule-set:rule-a",
     ]);
-    expect(reconcileRuleOrder(undefined, [], [])).toEqual([]);
-    expect(
-      reconcileRuleOrder(
-        [" missing ", "custom-rule-set:rule-a", "custom-rule-set:rule-a"],
-        customRules,
-        customRuleSets
-      )
-    ).toEqual(["custom-rule-set:rule-a", `custom-rule:${ruleWithoutId.id}`]);
-    expect(reconcileRuleOrder("bad" as never, customRules, [])).toEqual([`custom-rule:${ruleWithoutId.id}`]);
   });
 });
 
@@ -196,9 +186,9 @@ describe("custom rule batch import", () => {
       existingRules,
     });
 
-    expect(result.readyCount).toBe(4);
+    expect(result.readyCount).toBe(5);
     expect(result.skippedCount).toBe(3);
-    expect(result.errorCount).toBe(7);
+    expect(result.errorCount).toBe(6);
     expect(result.duplicateCount).toBe(2);
     expect(result.canImport).toBe(false);
     expect(result.items.map((item) => item.status)).toEqual([
@@ -209,7 +199,7 @@ describe("custom rule batch import", () => {
       "ready",
       "error",
       "error",
-      "error",
+      "ready",
       "error",
       "error",
       "error",
@@ -221,6 +211,7 @@ describe("custom rule batch import", () => {
     ]);
     expect(result.rules).toEqual([
       expect.objectContaining({ type: "DOMAIN-SUFFIX", value: "example.org", target: "PROXY", noResolve: true }),
+      expect.objectContaining({ type: "DOMAIN", value: "example.com", target: "PROXY", noResolve: true }),
       expect.objectContaining({ type: "DOMAIN", value: "batch.com", target: "PROXY", noResolve: false }),
       expect.objectContaining({ type: "DOMAIN-SUFFIX", value: "quoted,domain", target: "DIRECT", noResolve: false }),
       expect.objectContaining({ type: "DOMAIN", value: "a\"b.com", target: "PROXY", noResolve: false }),

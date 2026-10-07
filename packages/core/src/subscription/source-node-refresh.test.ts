@@ -611,6 +611,7 @@ describe("source node refresh helpers", () => {
       [SOURCE_IDS_KEY]: ["source-b", "source-a"],
     });
   });
+
 });
 
 describe("subscription response info helpers", () => {

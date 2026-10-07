@@ -1,7 +1,10 @@
 import { stripImportedNodeControlFieldsFromList } from "@subboost/core/subscription/imported-node-controls";
+import { parseNodeNameFilterConfig } from "@subboost/core/subscription/node-name-filter";
 import { normalizeSubscriptionResponseInfo } from "@subboost/core/subscription/subscription-response-info";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import type { ParsedNode } from "@subboost/core/types/node";
+import { getNodeEndpointError } from "@subboost/core/node-endpoint";
+import { MIHOMO_STRING_SCALAR_FIELDS, normalizeMihomoStringScalar } from "@subboost/core/mihomo/string-scalar";
 import { resolveSubscriptionAutoUpdateState, type SubscriptionAutoUpdateStateFields } from "./auto-update-state";
 import { normalizeSavedSourcesForPersistence, type NormalizeSavedSourcesForPersistenceOptions } from "./saved-sources";
 import { resolveSmartNodeMatchingEnabled } from "./refresh-node-snapshot";
@@ -72,6 +75,38 @@ export function normalizeSubscriptionNodeList(value: unknown): ParsedNode[] {
   return Array.isArray(value) ? stripImportedNodeControlFieldsFromList(value as ParsedNode[]) : [];
 }
 
+export function validateSubscriptionNodeList(value: unknown): ParsedNode[] {
+  if (!Array.isArray(value)) throw new Error("节点列表必须是数组");
+
+  for (let index = 0; index < value.length; index += 1) {
+    const item = value[index];
+    if (!isRecord(item)) throw new Error(`节点 #${index + 1} 必须是对象`);
+
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+    const type = typeof item.type === "string" ? item.type.trim().toLowerCase() : "";
+    if (!name) throw new Error(`节点 #${index + 1} 缺少有效名称`);
+    if (!type) throw new Error(`节点 #${index + 1} 缺少有效类型`);
+
+    if (type === "relay") {
+      if (!Array.isArray(item.proxies) || item.proxies.length === 0 || item.proxies.some((proxy) => typeof proxy !== "string" || !proxy.trim())) {
+        throw new Error(`节点 #${index + 1} 的 relay proxies 必须是非空字符串数组`);
+      }
+      continue;
+    }
+
+    const endpointError = getNodeEndpointError(item);
+    if (endpointError) throw new Error(`节点 #${index + 1} ${endpointError.startsWith("端口") ? "的" : ""}${endpointError}`);
+    for (const field of MIHOMO_STRING_SCALAR_FIELDS) {
+      if (item[field] === undefined || item[field] === null) continue;
+      if (normalizeMihomoStringScalar(item[field]) === undefined) {
+        throw new Error(`节点 #${index + 1} 的 ${field} 必须是字符串或可无损表示的整数`);
+      }
+    }
+  }
+
+  return stripImportedNodeControlFieldsFromList(value as ParsedNode[]);
+}
+
 export function normalizeSubscriptionInfoForPersistence(value: unknown): Record<string, unknown> | null {
   return normalizeSubscriptionResponseInfo(value);
 }
@@ -108,6 +143,10 @@ export function normalizeSubscriptionConfigForPersistence(
     }
   }
 
+  if ("nodeNameFilter" in baseConfig) {
+    baseConfig.nodeNameFilter = parseNodeNameFilterConfig(baseConfig.nodeNameFilter);
+  }
+
   if (typeof input.smartNodeMatchingEnabled === "boolean") {
     baseConfig.smartNodeMatchingEnabled = input.smartNodeMatchingEnabled;
   } else if (typeof baseConfig.smartNodeMatchingEnabled !== "boolean" && options.defaultSmartNodeMatchingEnabled !== undefined) {
@@ -128,6 +167,10 @@ export function serializeSubscriptionAutoUpdateState(
     ...(options.includeFailureSourceState === false ? {} : { failureSourceState: state.failureSourceState }),
     lastFailedAt: maybeIso(state.lastFailedAt, mode),
     ...(options.includeLastAttemptedAt === false ? {} : { lastAttemptedAt: maybeIso(state.lastAttemptedAt, mode) }),
+    nodeQuotaFailureCount: state.nodeQuotaFailureCount,
+    lastNodeQuotaExceededAt: maybeIso(state.lastNodeQuotaExceededAt, mode),
+    lastNodeQuotaActual: state.lastNodeQuotaActual,
+    lastNodeQuotaLimit: state.lastNodeQuotaLimit,
     disabledAt: maybeIso(state.disabledAt, mode),
     disabledReason: state.disabledReason,
     disabledPreviousInterval: state.disabledPreviousInterval,

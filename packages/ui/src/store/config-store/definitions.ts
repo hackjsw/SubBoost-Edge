@@ -4,6 +4,8 @@ import type {
   CustomProxyGroup,
   CustomRule,
   CustomRuleSet,
+  GroupListenerBinding,
+  GroupListenerTarget,
   ProxyGroupAdvancedConfig,
   TemplateType,
 } from "@subboost/core/types/config";
@@ -17,6 +19,10 @@ import {
 } from "@subboost/core/subscription/import-error";
 import type { SubscriptionUserInfo } from "@subboost/core/subscription/subscription-userinfo";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
+import {
+  DEFAULT_NODE_NAME_FILTER_CONFIG,
+  type NodeNameFilterConfig,
+} from "@subboost/core/subscription/node-name-filter";
 import { getActiveProductApiAdapter } from "@subboost/ui/product/api-adapter";
 import {
   getNodeSourceIds,
@@ -30,8 +36,16 @@ import {
 
 export { DEFAULT_BASE_CONFIG_YAML };
 export type RuleSetDraft = Omit<CustomRuleSet, "target">;
-export type { BuiltinRuleEdits, CustomRuleSet, ProxyGroupAdvancedConfig };
+export type { BuiltinRuleEdits, CustomRuleSet, GroupListenerBinding, GroupListenerTarget, ProxyGroupAdvancedConfig };
 export type { DialerProxyGroup, SubBoostTemplateConfig } from "@subboost/core/types/template-config";
+export type { NodeNameFilterConfig } from "@subboost/core/subscription/node-name-filter";
+
+export type ConfigHistoryEntry =
+  | string
+  | {
+      yaml: string;
+      nodeNameFilter: NodeNameFilterConfig;
+    };
 
 // 预设的中转组名称
 export const PRESET_RELAY_NAMES = [
@@ -156,6 +170,8 @@ export async function fetchUrlContentInBrowser(
 }
 
 export interface ConfigState {
+  /** Changes when a new editor session replaces the current draft; never persisted. */
+  draftRevision: number;
   // 节点相关
   nodes: ParsedNode[];
   deletedNodeNames: string[];
@@ -169,6 +185,7 @@ export interface ConfigState {
   }>;
   parseErrors: string[];
   isLoading: boolean;
+  nodeNameFilter: NodeNameFilterConfig;
 
   // 订阅源
   sources: SubscriptionSource[];
@@ -217,12 +234,15 @@ export interface ConfigState {
   // 节点监听端口（用于生成 listeners）
   listenerPorts: Record<string, number>;
 
+  // 分组监听：按稳定 ID 给策略组绑定 mixed inbound 端口（用于生成 listeners）
+  groupListeners: GroupListenerBinding[];
+
   // 生成结果
   generatedYaml: string;
   generatedYamlError: string | null;
 
   // 历史记录（用于撤销）
-  history: string[];
+  history: ConfigHistoryEntry[];
   historyIndex: number;
 }
 
@@ -241,7 +261,8 @@ export interface ConfigActions {
   restoreNodeName: (nodeName: string) => void;
   restoreDeletedNode: (originName: string) => void;
   moveNode: (nodeName: string, direction: "up" | "down") => void;
-  setNodeOrder: (nodeName: string, order: number) => void;
+  setNodeOrder: (nodeName: string, order: number, scopeNodeNames?: string[]) => void;
+  setNodeNameFilter: (config: NodeNameFilterConfig) => void;
 
   // 模板和配置
   setTemplate: (template: TemplateType) => void;
@@ -305,6 +326,10 @@ export interface ConfigActions {
   setExperimentalCnUseCnRuleSet: (value: boolean) => void;
   setListenerPort: (nodeName: string, port: number | null) => void;
   bulkSetListenerPorts: (patch: Record<string, number | null>) => void;
+  setGroupListener: (
+    target: GroupListenerTarget,
+    config: { port: number; enabled?: boolean; allowLan?: boolean } | null
+  ) => void;
 
   // 生成配置
   generateConfig: () => string;
@@ -330,11 +355,16 @@ export interface ConfigActions {
 }
 
 export const initialState: ConfigState = {
+  draftRevision: 0,
   nodes: [],
   deletedNodeNames: [],
   deletedNodes: [],
   parseErrors: [],
   isLoading: false,
+  nodeNameFilter: {
+    enabled: DEFAULT_NODE_NAME_FILTER_CONFIG.enabled,
+    excludeRegexes: [...DEFAULT_NODE_NAME_FILTER_CONFIG.excludeRegexes],
+  },
   sources: [
     { id: "1", type: "url", content: "" },
     { id: "2", type: "yaml", content: "" },
@@ -365,6 +395,7 @@ export const initialState: ConfigState = {
   cnIpNoResolve: DEFAULT_SUBBOOST_CONFIG.cnIpNoResolve,
   experimentalCnUseCnRuleSet: DEFAULT_SUBBOOST_CONFIG.experimentalCnUseCnRuleSet,
   listenerPorts: {},
+  groupListeners: [],
   generatedYaml: "",
   generatedYamlError: null,
   history: [],

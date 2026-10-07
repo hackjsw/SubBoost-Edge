@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Check, Trash2 } from "lucide-react";
 import { Button } from "@subboost/ui/components/ui/button";
+import { confirmDialog } from "@subboost/ui/components/ui/confirm-dialog";
 import { Input } from "@subboost/ui/components/ui/input";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { PROXY_GROUP_MODULES, type ProxyGroupModule } from "@subboost/core/generator/proxy-groups";
@@ -14,7 +15,7 @@ import { useProductInteractionAdapter } from "@subboost/ui/product/interactions"
 import {
   buildManualRuleTargets,
   listCustomRulesForTarget,
-  type ProxyGroupRuleTarget,
+  type ProxyGroupRuleTargetOption,
 } from "./proxy-group-rule-targets";
 import {
   ProxyGroupManualRuleRow,
@@ -34,6 +35,8 @@ import {
   type ProxyGroupNameDraft,
 } from "./proxy-group-name-editor";
 import { ProxyGroupsModuleCard } from "./proxy-groups-module-card";
+import { GroupAdvancedSettingsDialog } from "./group-advanced-settings-dialog";
+import { findGroupListenerBinding } from "./group-listener-settings";
 
 export function ProxyGroupsCustomGroupsPanel({
   advancedMode = false,
@@ -48,6 +51,8 @@ export function ProxyGroupsCustomGroupsPanel({
     proxyGroupNameOverrides = {},
     customRules = [],
     customRuleSets = [],
+    builtinRuleEdits = {},
+    cnIpNoResolve,
     customProxyGroups = [],
     addCustomProxyGroup,
     removeCustomProxyGroup,
@@ -57,6 +62,11 @@ export function ProxyGroupsCustomGroupsPanel({
     moveModuleRule,
     removeModuleRule,
     dialerProxyGroups = [],
+    groupListeners = [],
+    setGroupListener,
+    dnsYaml,
+    mixedPort,
+    listenerPorts = {},
   } = useConfigStore();
 
   const [expandedCustomGroups, setExpandedCustomGroups] = React.useState<Set<string>>(new Set());
@@ -68,7 +78,13 @@ export function ProxyGroupsCustomGroupsPanel({
   const [editingCustomGroupId, setEditingCustomGroupId] = React.useState<string | null>(null);
   const [editingCustomGroupName, setEditingCustomGroupName] = React.useState("");
   const [editingCustomGroupDescription, setEditingCustomGroupDescription] = React.useState("");
+  // 注意：新增 useState 追加在末尾，保持既有测试的 setter 索引稳定
+  const [settingsGroupId, setSettingsGroupId] = React.useState<string | null>(null);
   const interactions = useProductInteractionAdapter();
+  const listenerConflictState = React.useMemo(
+    () => ({ dnsYaml, mixedPort, listenerPorts, groupListeners }),
+    [dnsYaml, mixedPort, listenerPorts, groupListeners]
+  );
 
   const getAllGroupNamesForUniqCheck = React.useCallback(() => {
     const names: string[] = [];
@@ -124,8 +140,8 @@ export function ProxyGroupsCustomGroupsPanel({
   }, [customProxyGroups, hiddenProxyGroups, proxyGroupNameOverrides]);
 
   const moveManualRule = React.useCallback(
-    (item: { rule: { id: string }; index: number }, target: ProxyGroupRuleTarget) => {
-      updateCustomRule(item.rule.id, { target: target.name });
+    (item: { rule: { id: string }; index: number }, target: ProxyGroupRuleTargetOption) => {
+      updateCustomRule(item.rule.id, { target: { kind: target.kind, id: target.id } });
     },
     [updateCustomRule],
   );
@@ -248,7 +264,20 @@ export function ProxyGroupsCustomGroupsPanel({
                   customProxyGroups,
                 }) === group.name,
             );
-            const totalRules = groupRuleSets.length + manualRules.length;
+            const movedBuiltinRules = Object.entries(builtinRuleEdits).flatMap(([key, edit]) => {
+              if (edit?.enabled === false || !edit?.target) return [];
+              const match = key.match(/^module:([^:]+):(.+)$/);
+              if (!match) return [];
+              const sourceModule = PROXY_GROUP_MODULES.find((module) => module.id === match[1]);
+              const rule = sourceModule?.rules.find((item) => item.id === match[2]);
+              if (!sourceModule || !rule) return [];
+              const targetName = resolveProxyGroupTargetName(edit.target, {
+                moduleNames,
+                customProxyGroups,
+              });
+              return targetName === group.name ? [{ sourceModule, rule }] : [];
+            });
+            const totalRules = groupRuleSets.length + movedBuiltinRules.length + manualRules.length;
             const description = group.description?.trim() || "自定义代理组";
             const nodeCount = nodeCounts?.get(group.name) ?? 0;
 
@@ -326,6 +355,44 @@ export function ProxyGroupsCustomGroupsPanel({
                       }
                     />
                   ))}
+                  {movedBuiltinRules.map(({ sourceModule, rule }) => (
+                    <ProxyGroupRuleSetRow
+                      key={`builtin:${sourceModule.id}:${rule.id}`}
+                      name={rule.name}
+                      path={rule.path}
+                      source="preset"
+                      behavior={rule.behavior}
+                      noResolve={sourceModule.id === "cn" && rule.id === "cn-ip" ? cnIpNoResolve : rule.noResolve}
+                      state="active"
+                      actions={
+                        <>
+                          <ProxyGroupRuleMoveMenu
+                            title="移动规则集"
+                            ariaLabel={`移动 ${rule.name} 规则集`}
+                            targets={ruleSetMoveTargets}
+                            kinds={["module", "custom"]}
+                            currentTarget={{ kind: "custom", id: group.id, name: group.name }}
+                            onMove={(target) => {
+                              if (isRuleSetMoveTarget(target)) {
+                                moveModuleRule(group.id, rule.id, target);
+                              }
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-white/35 hover:text-red-300"
+                            onClick={() => removeModuleRule(group.id, rule.id)}
+                            title="删除规则集"
+                            aria-label={`删除 ${rule.name} 规则集`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      }
+                    />
+                  ))}
                   {manualRules.map((item) => (
                     <ProxyGroupManualRuleRow
                       key={`manual:${item.rule.id}`}
@@ -372,7 +439,26 @@ export function ProxyGroupsCustomGroupsPanel({
                   setEditingCustomGroupDescription("");
                 }}
                 onCommitEditing={commitCustomRename}
-                onHide={() => removeCustomProxyGroup(group.id)}
+                onHide={async () => {
+                  const listenerBinding = findGroupListenerBinding(groupListeners, { kind: "custom", id: group.id });
+                  if (listenerBinding) {
+                    const ok = await confirmDialog({
+                      title: `确认删除「${group.name}」？`,
+                      description: (
+                        <span className="block pt-2">
+                          <span className="block rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 leading-6 text-amber-100/90">
+                            <span className="font-medium text-amber-200">警告：</span>
+                            该分组已绑定监听端口 {listenerBinding.port}，删除分组会一并移除该监听端口。
+                          </span>
+                        </span>
+                      ),
+                      confirmText: "删除",
+                      variant: "warning",
+                    });
+                    if (!ok) return;
+                  }
+                  removeCustomProxyGroup(group.id);
+                }}
                 extraRules={[]}
                 ruleSetsByTarget={{}}
                 hiddenPresetRuleIds={{}}
@@ -391,7 +477,9 @@ export function ProxyGroupsCustomGroupsPanel({
                 onAddRuleToCustomGroup={() => undefined}
                 onRemoveExtraRule={() => undefined}
                 onMoveRule={() => undefined}
-                onMoveManualRule={(ruleId, targetName) => updateCustomRule(ruleId, { target: targetName })}
+                onMoveManualRule={(ruleId, target) =>
+                  updateCustomRule(ruleId, { target: { kind: target.kind, id: target.id } })
+                }
                 onRemoveManualRule={removeCustomRule}
                 onRestoreRule={() => undefined}
                 onResetRuleTarget={() => undefined}
@@ -402,13 +490,10 @@ export function ProxyGroupsCustomGroupsPanel({
                 description={description}
                 groupType={group.groupType as ProxyGroupTypeMenuValue}
                 strategy={group.strategy}
-                onChangeGroupType={({ groupType, strategy }) =>
-                  updateCustomProxyGroup(group.id, {
-                    groupType: groupType as ProxyGroupGroupType,
-                    ...(groupType === "load-balance"
-                      ? { strategy: strategy ?? group.strategy ?? DEFAULT_LOAD_BALANCE_STRATEGY }
-                      : { strategy: undefined }),
-                  })
+                onOpenAdvancedSettings={() => setSettingsGroupId(group.id)}
+                advancedSettingsActive={
+                  group.groupType !== "select" ||
+                  Boolean(findGroupListenerBinding(groupListeners, { kind: "custom", id: group.id }))
                 }
                 rulesContentOverride={
                   totalRules === 0 ? (
@@ -440,6 +525,42 @@ export function ProxyGroupsCustomGroupsPanel({
           })}
         </div>
       )}
+
+      {(() => {
+        const settingsGroup = settingsGroupId
+          ? customProxyGroups.find((group) => group.id === settingsGroupId)
+          : undefined;
+        if (!settingsGroup) return null;
+        const target = { kind: "custom" as const, id: settingsGroup.id };
+        return (
+          <GroupAdvancedSettingsDialog
+            open
+            onOpenChange={(open) => {
+              if (!open) setSettingsGroupId(null);
+            }}
+            groupName={settingsGroup.name}
+            groupType={settingsGroup.groupType}
+            strategy={settingsGroup.strategy}
+            testUrl={settingsGroup.advanced?.testUrl}
+            listenerTarget={target}
+            listenerBinding={findGroupListenerBinding(groupListeners, target)}
+            conflictState={listenerConflictState}
+            onSave={({ groupType, strategy, listener, testUrl }) => {
+              updateCustomProxyGroup(settingsGroup.id, {
+                ...(testUrl !== settingsGroup.advanced?.testUrl ? { advanced: { ...settingsGroup.advanced, testUrl } } : {}),
+                groupType: groupType as ProxyGroupGroupType,
+                ...(groupType === "load-balance"
+                  ? { strategy: strategy ?? settingsGroup.strategy ?? DEFAULT_LOAD_BALANCE_STRATEGY }
+                  : { strategy: undefined }),
+              });
+              setGroupListener(
+                target,
+                listener ? { port: listener.port, enabled: listener.enabled, allowLan: listener.allowLan } : null
+              );
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

@@ -24,6 +24,7 @@ import {
 } from "@subboost/core/subscription/subscription-response-info";
 import type { SubscriptionImportErrorCategory } from "@subboost/core/subscription/import-error";
 import type { ParsedNode } from "@subboost/core/types/node";
+import { composeNodeNameRenameMaps } from "@subboost/core/subscription/node-name-references";
 import { normalizeSavedSourcesForPersistence, type SavedSource, type SavedSourceType } from "./saved-sources";
 
 type UrlNodeFetchResult = {
@@ -64,6 +65,7 @@ export type RefreshNodeSnapshotOptions = {
 
 export type RefreshNodeSnapshotResult = {
   nodes: ParsedNode[];
+  renameMap?: ReadonlyMap<string, string>;
   subscriptionInfo: SubscriptionResponseInfo;
   savedSources: SavedSource[];
   attemptedUrlFetch: boolean;
@@ -146,6 +148,7 @@ export async function refreshNodeSnapshot(
   let failedSourceCount = 0;
   const failedSources: RefreshNodeSnapshotFailedSource[] = [];
   const sourcesWithAttemptedUserInfo = new Set<string>();
+  let renameMap = new Map<string, string>();
 
   const recordFailedSource = (
     source: SavedSource,
@@ -289,6 +292,7 @@ export async function refreshNodeSnapshot(
         deletedNodes,
       });
 
+      renameMap = composeNodeNameRenameMaps(renameMap, merged.renameMap);
       currentNodes = merged.nodes;
       usedUrlFetch = true;
       refreshedSourceCount += 1;
@@ -323,6 +327,7 @@ export async function refreshNodeSnapshot(
         deletedNodes,
       });
 
+      renameMap = composeNodeNameRenameMaps(renameMap, merged.renameMap);
       currentNodes = merged.nodes;
       refreshedSourceCount += 1;
       refreshedStaticSourceCount += 1;
@@ -375,6 +380,7 @@ export async function refreshNodeSnapshot(
 
   return {
     nodes: currentNodes,
+    renameMap,
     subscriptionInfo,
     savedSources: refreshedSavedSources,
     attemptedUrlFetch,

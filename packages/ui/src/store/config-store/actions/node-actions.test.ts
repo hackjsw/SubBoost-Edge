@@ -304,6 +304,47 @@ describe("createNodeActions", () => {
     expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual(["C", "B", "A"]);
   });
 
+  it("reorders only scoped node slots while preserving hidden node positions", () => {
+    const { actions, getState } = createHarness({
+      nodes: [
+        node("A"),
+        node("Hidden 1"),
+        node("B"),
+        node("Hidden 2"),
+        node("C"),
+      ],
+    });
+    const effectiveNodeNames = ["A", "B", "C"];
+
+    actions.setNodeOrder("C", 1, effectiveNodeNames);
+    expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual([
+      "C",
+      "Hidden 1",
+      "A",
+      "Hidden 2",
+      "B",
+    ]);
+
+    actions.setNodeOrder("C", 3, effectiveNodeNames);
+    expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual([
+      "A",
+      "Hidden 1",
+      "B",
+      "Hidden 2",
+      "C",
+    ]);
+
+    actions.setNodeOrder("Hidden 1", 2, effectiveNodeNames);
+    actions.setNodeOrder("A", 2, []);
+    expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual([
+      "A",
+      "Hidden 1",
+      "B",
+      "Hidden 2",
+      "C",
+    ]);
+  });
+
   it("bulk renames nodes and listener ports without duplicate names", () => {
     const { actions, getState } = createHarness({
       nodes: [node("A"), node("B"), node("C"), node("X")],

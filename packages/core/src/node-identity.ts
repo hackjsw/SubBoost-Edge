@@ -7,7 +7,10 @@ export interface NodeContentKeyOptions {
   ignoreServername?: boolean;
 }
 
-export function stableJsonStringify(value: unknown): string {
+function stableJsonStringifyWithKeyFilter(
+  value: unknown,
+  includeKey: (key: string) => boolean
+): string {
   const seen = new WeakSet<object>();
 
   const normalize = (input: unknown): unknown => {
@@ -20,11 +23,18 @@ export function stableJsonStringify(value: unknown): string {
     const obj = input as Record<string, unknown>;
     const keys = Object.keys(obj).sort();
     const out: Record<string, unknown> = {};
-    for (const key of keys) out[key] = normalize(obj[key]);
+    for (const key of keys) {
+      if (!includeKey(key)) continue;
+      out[key] = normalize(obj[key]);
+    }
     return out;
   };
 
   return JSON.stringify(normalize(value));
+}
+
+export function stableJsonStringify(value: unknown): string {
+  return stableJsonStringifyWithKeyFilter(value, () => true);
 }
 
 export function buildNodeContentKey(
@@ -43,7 +53,9 @@ export function buildNodeContentKey(
     })
   );
 
-  return stableJsonStringify(filtered);
+  // 节点内部字段不属于内容身份；例如机场轮换 reality-opts._spider-x
+  // 时，节点的稳定身份不应随之变化。
+  return stableJsonStringifyWithKeyFilter(filtered, (key) => !key.startsWith("_"));
 }
 
 export function buildScopedNodeIdentityKey(scope: string, node: ParsedNode): string {

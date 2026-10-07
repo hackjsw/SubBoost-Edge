@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUTO_UPDATE_NODE_QUOTA_DISABLED_REASON,
+  AUTO_UPDATE_NODE_QUOTA_FAILURE_THRESHOLD,
   buildAutomaticRefreshAutoUpdateState,
+  buildAutomaticRefreshNodeQuotaExceededState,
   buildAutomaticRefreshUnexpectedFailureState,
   createResetSubscriptionAutoUpdateState,
   markAutomaticRefreshAttempted,
@@ -39,6 +42,10 @@ describe("subscription auto-update state helpers", () => {
       failureSourceState: "state",
       lastFailedAt: failedAt,
       lastAttemptedAt: null,
+      nodeQuotaFailureCount: 2,
+      lastNodeQuotaExceededAt: failedAt,
+      lastNodeQuotaActual: 120,
+      lastNodeQuotaLimit: 100,
       disabledAt: null,
       disabledReason: null,
       disabledPreviousInterval: null,
@@ -53,9 +60,20 @@ describe("subscription auto-update state helpers", () => {
       failureSourceState: null,
       lastFailedAt: null,
       lastAttemptedAt: attemptedAt,
+      nodeQuotaFailureCount: 0,
+      lastNodeQuotaExceededAt: null,
+      lastNodeQuotaActual: null,
+      lastNodeQuotaLimit: null,
       disabledAt: null,
       disabledReason: null,
       disabledPreviousInterval: null,
+    });
+    expect(buildAutomaticRefreshUnexpectedFailureState(attemptedAt, current)).toMatchObject({
+      externalFailureCount: 0,
+      nodeQuotaFailureCount: 2,
+      lastNodeQuotaExceededAt: failedAt,
+      lastNodeQuotaActual: 120,
+      lastNodeQuotaLimit: 100,
     });
   });
 
@@ -107,6 +125,87 @@ describe("subscription auto-update state helpers", () => {
         disabledReason: "订阅源连续拉取失败",
         disabledPreviousInterval: 7200,
       },
+    });
+  });
+
+  it("counts quota failures independently and disables on the third attempt", () => {
+    let state: SubscriptionAutoUpdateStateFields = {
+      ...createResetSubscriptionAutoUpdateState(),
+      externalFailureCount: 2,
+      failureSourceState: "external-state",
+    };
+
+    for (let count = 1; count <= AUTO_UPDATE_NODE_QUOTA_FAILURE_THRESHOLD; count += 1) {
+      const result = buildAutomaticRefreshNodeQuotaExceededState({
+        currentState: state,
+        attemptedAt,
+        actualNodeCount: 120 + count,
+        effectiveNodeLimit: 100,
+        previousAutoUpdateInterval: 7200,
+      });
+      state = result.state;
+
+      expect(state.nodeQuotaFailureCount).toBe(count);
+      expect(state.externalFailureCount).toBe(2);
+      expect(state.failureSourceState).toBe("external-state");
+      expect(result.shouldDisableAutoUpdate).toBe(count === AUTO_UPDATE_NODE_QUOTA_FAILURE_THRESHOLD);
+    }
+
+    expect(state).toMatchObject({
+      lastNodeQuotaExceededAt: attemptedAt,
+      lastNodeQuotaActual: 123,
+      lastNodeQuotaLimit: 100,
+      disabledAt: attemptedAt,
+      disabledReason: AUTO_UPDATE_NODE_QUOTA_DISABLED_REASON,
+      disabledPreviousInterval: 7200,
+    });
+  });
+
+  it("preserves quota facts across external failures and resets them after success", () => {
+    const current = {
+      ...createResetSubscriptionAutoUpdateState(),
+      nodeQuotaFailureCount: 2,
+      lastNodeQuotaExceededAt: failedAt,
+      lastNodeQuotaActual: 120,
+      lastNodeQuotaLimit: 100,
+    };
+    const preserved = buildAutomaticRefreshAutoUpdateState({
+      failureState: null,
+      attemptedAt,
+      previousAutoUpdateInterval: 7200,
+      currentState: current,
+      preserveNodeQuotaFailure: true,
+    });
+    const reset = buildAutomaticRefreshAutoUpdateState({
+      failureState: null,
+      attemptedAt,
+      previousAutoUpdateInterval: 7200,
+    });
+
+    expect(preserved.state).toMatchObject({
+      nodeQuotaFailureCount: 2,
+      lastNodeQuotaExceededAt: failedAt,
+      lastNodeQuotaActual: 120,
+      lastNodeQuotaLimit: 100,
+    });
+    expect(reset.state).toMatchObject({
+      nodeQuotaFailureCount: 0,
+      lastNodeQuotaExceededAt: null,
+      lastNodeQuotaActual: null,
+      lastNodeQuotaLimit: null,
+    });
+
+    const preserveWithoutCurrentState = buildAutomaticRefreshAutoUpdateState({
+      failureState: null,
+      attemptedAt,
+      previousAutoUpdateInterval: 7200,
+      preserveNodeQuotaFailure: true,
+    });
+    expect(preserveWithoutCurrentState.state).toMatchObject({
+      nodeQuotaFailureCount: 0,
+      lastNodeQuotaExceededAt: null,
+      lastNodeQuotaActual: null,
+      lastNodeQuotaLimit: null,
     });
   });
 

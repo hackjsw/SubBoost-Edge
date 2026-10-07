@@ -257,11 +257,44 @@ export function createNodeActions(
       });
     },
 
-    setNodeOrder: (nodeName: string, order: number) => {
+    setNodeOrder: (nodeName: string, order: number, scopeNodeNames?: string[]) => {
       setAndGenerateConfig((state) => {
+        if (!Number.isFinite(order)) return state;
+
+        if (Array.isArray(scopeNodeNames)) {
+          const scope = new Set(
+            scopeNodeNames.filter(
+              (name): name is string => typeof name === "string" && name.trim() !== ""
+            )
+          );
+          if (!scope.has(nodeName)) return state;
+
+          const scopedNodes = state.nodes.filter((node) => scope.has(node.name));
+          const from = scopedNodes.findIndex((node) => node.name === nodeName);
+          if (from < 0) return state;
+          const to = Math.max(
+            0,
+            Math.min(scopedNodes.length - 1, Math.floor(order) - 1)
+          );
+          if (to === from) return state;
+
+          const reorderedScopedNodes = scopedNodes.slice();
+          const [item] = reorderedScopedNodes.splice(from, 1);
+          reorderedScopedNodes.splice(to, 0, item);
+
+          let scopedIndex = 0;
+          return {
+            nodes: state.nodes.map((node) => {
+              if (!scope.has(node.name)) return node;
+              const replacement = reorderedScopedNodes[scopedIndex];
+              scopedIndex += 1;
+              return replacement ?? node;
+            }),
+          };
+        }
+
         const from = state.nodes.findIndex((n) => n.name === nodeName);
         if (from < 0) return state;
-        if (!Number.isFinite(order)) return state;
         const to = Math.max(0, Math.min(state.nodes.length - 1, Math.floor(order) - 1));
         if (to === from) return state;
         const next = state.nodes.slice();

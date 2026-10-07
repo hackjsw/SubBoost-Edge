@@ -17,6 +17,7 @@ import {
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import type { ParseResult, ParsedNode } from "@subboost/core/types/node";
 import { shouldTryClashMetaForV2raynPayload } from "./fetch-profile-heuristics";
+import { hasUsableSubscriptionSnapshot } from "./snapshot-comparison";
 import { SUBSCRIPTION_IMPORT_USER_AGENTS } from "./user-agents";
 
 export type SourceImportPurpose = "content" | "userinfo";
@@ -145,7 +146,7 @@ function createErrorInfo(message: string, httpStatus?: number): SubscriptionImpo
 }
 
 function isUsableParsedAttempt(attempt: ParsedAttempt): attempt is Extract<ParsedAttempt, { ok: true }> {
-  return attempt.ok && attempt.parsed.nodes.length > 0 && !looksLikeClientUpdatePlaceholderNodes(attempt.parsed.nodes);
+  return attempt.ok && hasUsableSubscriptionSnapshot(attempt.parsed);
 }
 
 function shouldContinueAfterCleanAttempt(params: {

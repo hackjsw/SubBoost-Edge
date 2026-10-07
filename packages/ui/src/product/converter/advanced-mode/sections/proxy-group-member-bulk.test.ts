@@ -6,6 +6,7 @@ import {
   findCycleCreatingProxyGroupKeys,
   isNodeMember,
   isProxyGroupMember,
+  mergeVisibleMemberOrder,
   type ResolvedMember,
 } from "./proxy-group-member-bulk";
 
@@ -88,6 +89,30 @@ describe("proxy group member bulk helpers", () => {
         { kind: "custom", id: "media" },
       ],
     });
+  });
+
+  it("reorders visible members without removing filtered-node slots", () => {
+    expect(
+      mergeVisibleMemberOrder(
+        [
+          { kind: "direct" },
+          { kind: "node", name: "Visible A" },
+          { kind: "node", name: "Filtered" },
+          { kind: "node", name: "Visible B" },
+        ],
+        [
+          { kind: "direct" },
+          { kind: "node", name: "Visible B" },
+          { kind: "node", name: "Visible A" },
+        ],
+        new Set(["node:Filtered"]),
+      ),
+    ).toEqual([
+      { kind: "direct" },
+      { kind: "node", name: "Visible B" },
+      { kind: "node", name: "Filtered" },
+      { kind: "node", name: "Visible A" },
+    ]);
   });
 
   it("distinguishes nodes and proxy groups from fixed policies", () => {

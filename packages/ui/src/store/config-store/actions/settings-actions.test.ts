@@ -25,6 +25,10 @@ describe("config store settings actions", () => {
     actions.setTestUrl("https://cp.cloudflare.com/generate_204");
     actions.setTestInterval(600);
     actions.setRuleProviderBaseUrl("https://rules.example.com");
+    actions.setNodeNameFilter({
+      enabled: true,
+      excludeRegexes: ["  expire  ", "expire", ""],
+    });
     actions.setCnIpNoResolve(true);
     actions.setExperimentalCnUseCnRuleSet(1 as unknown as boolean);
 
@@ -35,10 +39,31 @@ describe("config store settings actions", () => {
       testUrl: "https://cp.cloudflare.com/generate_204",
       testInterval: 600,
       ruleProviderBaseUrl: "https://rules.example.com",
+      nodeNameFilter: {
+        enabled: true,
+        excludeRegexes: ["expire"],
+      },
       cnIpNoResolve: true,
       experimentalCnUseCnRuleSet: true,
     });
-    expect(store.setAndGenerateConfig).toHaveBeenCalledTimes(8);
+    expect(store.setAndGenerateConfig).toHaveBeenCalledTimes(9);
     expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid node-name filters before updating generated config", () => {
+    const store = createStore();
+    const actions = createSettingsActions(
+      store.set as any,
+      store.get as any,
+      store.setAndGenerateConfig as any
+    );
+
+    expect(() =>
+      actions.setNodeNameFilter({
+        enabled: true,
+        excludeRegexes: ["("],
+      })
+    ).toThrow("第 1 行");
+    expect(store.state()).toEqual({});
   });
 });

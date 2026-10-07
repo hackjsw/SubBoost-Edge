@@ -48,6 +48,8 @@ function hasCustomizations(state: ConfigStoreState): boolean {
     state.deletedNodes.length > 0 ||
     state.deletedNodeNames.length > 0 ||
     Object.keys(state.listenerPorts ?? {}).length > 0 ||
+    (state.groupListeners?.length ?? 0) > 0 ||
+    state.nodeNameFilter?.enabled === true ||
     state.hiddenProxyGroups.length > 0 ||
     Object.keys(state.proxyGroupNameOverrides ?? {}).length > 0 ||
     Object.keys(state.proxyGroupAdvanced ?? {}).length > 0 ||

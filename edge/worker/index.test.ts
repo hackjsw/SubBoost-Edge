@@ -1961,6 +1961,104 @@ describe("EdgeSub worker", () => {
     expect(subscriptions.find(sub => sub.name === "No Usage")).toMatchObject({ nodeCount: 0, usage: null });
   });
 
+  it("applies the node name filter on save and in listed node counts", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const hk = parseNodeLink("trojan://password@hk.example.com:443?sni=hk.example.com#HK 01");
+    const expired = parseNodeLink("trojan://password@x.example.com:443?sni=x.example.com#剩余流量 1G");
+    const save = (nodeNameFilter: unknown) => handleRequest(
+      authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Filtered",
+          yaml: "proxies: []\nrules: []\n",
+          nodes: [hk, expired],
+          config: { template: "minimal", nodeNameFilter },
+        }),
+      }),
+      env
+    );
+
+    const unsafe = await save({ enabled: true, excludeRegexes: ["(\\w|\\d)+x$"] });
+    expect(unsafe.status).toBe(400);
+    expect(((await unsafe.json()) as { error: string }).error).toContain("自动处理规则无效");
+
+    const excludesAll = await save({ enabled: true, excludeRegexes: ["."] });
+    expect(excludesAll.status).toBe(400);
+    expect(((await excludesAll.json()) as { error: string }).error).toContain("排除了全部节点");
+
+    const created = await save({ enabled: true, excludeRegexes: ["剩余|过期"] });
+    expect(created.status).toBe(200);
+    const { subscription } = (await created.json()) as { subscription: { token: string } };
+    const stored = JSON.parse(kv.values.get(`edge-config:${subscription.token}`)!) as { yaml: string };
+    expect(stored.yaml).toContain("HK 01");
+    expect(stored.yaml).not.toContain("剩余流量");
+
+    const list = await handleRequest(authenticatedRequest("https://edge.test/api/subscriptions", cookie), env);
+    const { subscriptions } = (await list.json()) as { subscriptions: Array<{ name: string; nodeCount: number }> };
+    expect(subscriptions.find(sub => sub.name === "Filtered")?.nodeCount).toBe(1);
+  });
+
+  it("keeps relay groups pointing at renamed airport nodes after a scheduled refresh", async () => {
+    const kv = new MemoryKv();
+    const env = createEnv(kv);
+    const cookie = await login(env);
+    const airportYaml = (name: string) => [
+      "proxies:",
+      `  - { name: "${name}", type: trojan, server: hk.example.com, port: 443, password: secret, sni: hk.example.com }`,
+    ].join("\n");
+    let relayName = "香港 01";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(airportYaml(relayName), { headers: { "content-type": "text/yaml" } })));
+    const vps = "vless://00000000-0000-4000-8000-000000000000@vps.example.com:443?encryption=none&security=tls#VPS";
+    try {
+      const createResponse = await handleRequest(
+        authenticatedRequest("https://edge.test/api/subscriptions", cookie, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Relay",
+            yaml: "proxies: []\nrules: []\n",
+            autoUpdateInterval: 6 * 3600,
+            urls: ["https://airport.example.com/sub"],
+            nodes: [{ name: "香港 01", type: "trojan", server: "hk.example.com", port: 443, password: "secret", sni: "hk.example.com" }, parseNodeLink(vps)],
+            config: {
+              template: "minimal",
+              sources: [
+                { id: "airport", type: "url", content: "https://airport.example.com/sub" },
+                { id: "vps", type: "nodes", content: vps },
+              ],
+              dialerProxyGroups: [
+                { id: "relay", name: "香港中转", type: "select", relayNodes: ["香港 01"], targetNodes: ["VPS"] },
+              ],
+            },
+          }),
+        }),
+        env
+      );
+      expect(createResponse.status).toBe(200);
+      const { subscription } = (await createResponse.json()) as { subscription: { token: string; nextUpdateAt: string } };
+      const runAt = (offsetHours: number) =>
+        new Date(new Date(subscription.nextUpdateAt).getTime() + offsetHours * 3600_000 + 1000);
+
+      // The first refresh records source ownership; the second sees the airport's rename.
+      await runScheduledSubscriptionUpdates({ SUB_KV: kv }, runAt(0));
+      relayName = "🇭🇰 香港 01";
+      const summary = await runScheduledSubscriptionUpdates({ SUB_KV: kv }, runAt(6));
+      const stored = JSON.parse(kv.values.get(`edge-config:${subscription.token}`)!) as {
+        yaml: string;
+        config: { dialerProxyGroups: Array<{ relayNodes: string[]; targetNodes: string[] }> };
+      };
+
+      expect(summary).toMatchObject({ updated: 1, failed: 0 });
+      expect(stored.config.dialerProxyGroups[0]).toMatchObject({ relayNodes: ["🇭🇰 香港 01"], targetNodes: ["VPS"] });
+      expect(stored.yaml).toContain("dialer-proxy: 香港中转");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps the last successful YAML when a scheduled refresh fails", async () => {
     const kv = new MemoryKv();
     const env = createEnv(kv);

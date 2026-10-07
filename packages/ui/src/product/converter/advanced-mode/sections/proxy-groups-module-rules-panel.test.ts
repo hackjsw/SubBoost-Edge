@@ -48,13 +48,16 @@ vi.mock("react", async (importOriginal) => {
 });
 
 vi.mock("@radix-ui/react-popover", () => ({
+  Anchor: (props: any) => React.createElement(React.Fragment, null, props.children),
+  Close: (props: any) => React.createElement(React.Fragment, null, props.children),
   Root: (props: any) => React.createElement(React.Fragment, null, props.children),
   Trigger: (props: any) => React.createElement(React.Fragment, null, props.children),
   Portal: (props: any) => React.createElement(React.Fragment, null, props.children),
-  Content: (props: any) => React.createElement("div", props, props.children),
+  Content: ({ children, sideOffset: _sideOffset, ...props }: any) => React.createElement("div", props, children),
   Arrow: () => null,
 }));
 vi.mock("lucide-react", () => ({
+  CircleHelp: () => null,
   HelpCircle: () => null,
   Plus: () => null,
   RotateCcw: () => null,
@@ -229,8 +232,9 @@ describe("ProxyGroupsModuleRulesPanel", () => {
     mocks.captures.buttons.find((button) => button["aria-label"] === "恢复默认目标 Removed 规则集").onClick();
     expect(props.onResetRuleTarget).toHaveBeenCalledWith("removed-rule");
 
-    mocks.captures.manualRows[0].onMove(mocks.captures.manualRows[0].item, { name: "自动选择" });
-    expect(props.onMoveManualRule).toHaveBeenCalledWith("manual-1", "自动选择");
+    const manualTarget = { kind: "module", id: "auto", name: "自动选择" };
+    mocks.captures.manualRows[0].onMove(mocks.captures.manualRows[0].item, manualTarget);
+    expect(props.onMoveManualRule).toHaveBeenCalledWith("manual-1", manualTarget);
     mocks.captures.manualRows[0].onRemove({ index: 0 });
     expect(props.onRemoveManualRule).toHaveBeenCalledWith(0);
   });

@@ -80,8 +80,17 @@ const baseProps = {
     autoUpdateInterval: null,
     smartNodeMatchingEnabled: true,
     autoUpdateState: {
+      externalFailureCount: 0,
+      failureSourceState: null,
+      lastFailedAt: null,
+      lastAttemptedAt: null,
+      nodeQuotaFailureCount: 0,
+      lastNodeQuotaExceededAt: null,
+      lastNodeQuotaActual: null,
+      lastNodeQuotaLimit: null,
       disabledAt: "2026-01-02T00:00:00.000Z",
       disabledReason: "fetch_failed",
+      disabledPreviousInterval: 86400,
     },
   } as any,
   settingsName: "Primary",
@@ -148,5 +157,28 @@ describe("SubscriptionSettingsDialog", () => {
 
     captures.inputs[1].onChange({ target: { value: "18" } });
     expect(baseProps.setAutoUpdateHours).toHaveBeenCalledWith(18);
+  });
+
+  it("renders quota-specific recovery guidance", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SubscriptionSettingsDialog, {
+        ...baseProps,
+        subscription: {
+          ...baseProps.subscription,
+          autoUpdateState: {
+            ...baseProps.subscription.autoUpdateState,
+            nodeQuotaFailureCount: 3,
+            lastNodeQuotaExceededAt: "2026-01-02T00:00:00.000Z",
+            lastNodeQuotaActual: 120,
+            lastNodeQuotaLimit: 100,
+            disabledReason: "节点数连续超过配额",
+          },
+        },
+      })
+    );
+
+    expect(html).toContain("实际 120，额度 100（连续 3/3 次）");
+    expect(html).toContain("请减少导入节点或订阅源，或提高节点额度");
+    expect(html).not.toContain("检查订阅 URL");
   });
 });

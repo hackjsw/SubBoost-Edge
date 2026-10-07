@@ -4,6 +4,8 @@ import {
   getEffectiveTestOptions,
 } from "@subboost/core/subscription/config-utils";
 import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy-providers";
+import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
+import { reconcileNodeNameReferences } from "@subboost/core/subscription/node-name-references";
 import type { ParsedNode } from "@subboost/core/types/node";
 import type { SubscriptionResponseInfo } from "@subboost/core/subscription/subscription-response-info";
 import type { RefreshNodeSnapshotResult } from "./refresh-node-snapshot";
@@ -23,6 +25,7 @@ export type PreparedRefreshCacheResult =
   | {
       ok: true;
       cacheEntry: RefreshCacheEntry;
+      refreshedConfig: Record<string, unknown>;
       generatedYaml: string;
       nodeCount: number;
       proxyProviders?: Record<string, unknown>;
@@ -48,23 +51,22 @@ export function prepareRefreshCacheResult(params: {
       testUrl,
       testInterval,
     });
+  const hasProxyProviders = Boolean(
+    proxyProviders && Object.keys(proxyProviders).length > 0
+  );
   const common = {
     proxyProviders,
     nodeCount: params.snapshot.nodes.length,
   };
+  const nodeNameFilterResult = resolveNodeNameFilter(
+    params.snapshot.nodes,
+    params.config.nodeNameFilter
+  );
 
   if (params.snapshot.refreshableSourceCount > 0 && params.snapshot.refreshedSourceCount === 0) {
     return {
       ok: false,
       reason: "all_sources_failed",
-      ...common,
-    };
-  }
-
-  if (params.snapshot.nodes.length === 0 && !proxyProviders) {
-    return {
-      ok: false,
-      reason: "empty_result",
       ...common,
     };
   }
@@ -78,8 +80,27 @@ export function prepareRefreshCacheResult(params: {
     };
   }
 
+  if (nodeNameFilterResult.effectiveCount === 0 && !hasProxyProviders) {
+    return {
+      ok: false,
+      reason: "empty_result",
+      ...common,
+    };
+  }
+
+  const refreshedConfig = reconcileNodeNameReferences(
+    {
+      ...params.config,
+      sources: params.snapshot.savedSources,
+    },
+    {
+      nodes: params.snapshot.nodes,
+      renameMap: params.snapshot.renameMap,
+    }
+  );
+
   const generatedYaml = generateClashYaml(
-    buildGenerateOptionsFromConfig(params.config, {
+    buildGenerateOptionsFromConfig(refreshedConfig, {
       nodes: params.snapshot.nodes,
       proxyProviders,
     })
@@ -88,6 +109,7 @@ export function prepareRefreshCacheResult(params: {
   return {
     ok: true,
     ...common,
+    refreshedConfig,
     generatedYaml,
     cacheEntry: {
       nodes: params.snapshot.nodes,

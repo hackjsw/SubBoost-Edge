@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, ListOrdered } from "lucide-react";
 import { Badge } from "@subboost/ui/components/ui/badge";
 import { confirmDialog } from "@subboost/ui/components/ui/confirm-dialog";
 import { Input } from "@subboost/ui/components/ui/input";
+import { IconButton } from "@subboost/ui/components/ui/icon-button";
 import { Switch } from "@subboost/ui/components/ui/switch";
 import {
   buildGeneratedRuleEntries,
@@ -43,6 +44,7 @@ export function RulesManagementSection({
   const {
     enabledProxyGroups,
     customRules,
+    customProxyGroups,
     customRuleSets,
     builtinRuleEdits,
     proxyGroupNameOverrides,
@@ -52,13 +54,14 @@ export function RulesManagementSection({
     setRuleOrder,
   } = useConfigStore();
   const [orderDrafts, setOrderDrafts] = React.useState<Record<string, string>>({});
-  const allRulesMode = hasFullRuleOrderKeys(ruleOrder);
+  const allRulesMode = ruleOrder.length === 0 || hasFullRuleOrderKeys(ruleOrder);
 
   const entries = React.useMemo(
     () =>
       buildGeneratedRuleEntries({
         enabledModules: enabledProxyGroups,
         customRules,
+        customProxyGroups,
         customRuleSets,
         builtinRuleEdits,
         proxyGroupNameOverrides,
@@ -68,6 +71,7 @@ export function RulesManagementSection({
       }),
     [
       cnIpNoResolve,
+      customProxyGroups,
       customRuleSets,
       customRules,
       enabledProxyGroups,
@@ -85,6 +89,7 @@ export function RulesManagementSection({
   const preMatchKeys = React.useMemo(() => preMatchEntries.map((entry) => entry.key), [preMatchEntries]);
   const editableEntries = React.useMemo(() => entries.filter((entry) => entry.editable), [entries]);
   const editableKeys = React.useMemo(() => editableEntries.map((entry) => entry.key), [editableEntries]);
+  const movableKeys = allRulesMode ? preMatchKeys : editableKeys;
 
   const applyRuleOrder = React.useCallback(
     (nextRuleOrder: string[]) => {
@@ -102,30 +107,30 @@ export function RulesManagementSection({
 
   const moveRule = React.useCallback(
     (key: string, direction: "up" | "down") => {
-      const from = preMatchKeys.indexOf(key);
+      const from = movableKeys.indexOf(key);
       if (from < 0) return;
-      const to = clamp(direction === "up" ? from - 1 : from + 1, 0, preMatchKeys.length - 1);
+      const to = clamp(direction === "up" ? from - 1 : from + 1, 0, movableKeys.length - 1);
       if (to === from) return;
-      const next = preMatchKeys.slice();
+      const next = movableKeys.slice();
       const [item] = next.splice(from, 1);
       next.splice(to, 0, item);
       applyRuleOrder(next);
     },
-    [applyRuleOrder, preMatchKeys]
+    [applyRuleOrder, movableKeys]
   );
 
   const setRuleAbsoluteOrder = React.useCallback(
     (key: string, absoluteOrder: number) => {
-      const from = preMatchKeys.indexOf(key);
+      const from = movableKeys.indexOf(key);
       if (from < 0 || !Number.isFinite(absoluteOrder)) return;
-      const to = clamp(Math.floor(absoluteOrder) - 1, 0, preMatchEntries.length - 1);
+      const to = clamp(Math.floor(absoluteOrder) - 1, 0, movableKeys.length - 1);
       if (to === from) return;
-      const next = preMatchKeys.slice();
+      const next = movableKeys.slice();
       const [item] = next.splice(from, 1);
       next.splice(to, 0, item);
       applyRuleOrder(next);
     },
-    [applyRuleOrder, preMatchEntries.length, preMatchKeys]
+    [applyRuleOrder, movableKeys]
   );
 
   const handleToggleAllRulesMode = React.useCallback(
@@ -184,6 +189,7 @@ export function RulesManagementSection({
               <div className="ml-auto flex shrink-0 items-center gap-2">
                 <span className="text-[11px] whitespace-nowrap text-white/55">调整所有规则顺序</span>
                 <Switch
+                  aria-label="调整所有规则顺序"
                   checked={allRulesMode}
                   onCheckedChange={handleToggleAllRulesMode}
                   disabled={preMatchEntries.length <= 1}
@@ -194,12 +200,13 @@ export function RulesManagementSection({
 
           <div className="max-h-[460px] overflow-y-auto overflow-x-hidden rounded-lg border border-white/10 bg-black/10 pr-1 custom-scrollbar">
             {entries.map((entry, index) => {
-              const fullIndex = preMatchKeys.indexOf(entry.key);
+              const movableIndex = movableKeys.indexOf(entry.key);
               const canEditOrder = entry.key !== "special:match" && (allRulesMode || entry.editable);
-              const canMoveUp = canEditOrder && fullIndex > 0;
-              const canMoveDown = canEditOrder && fullIndex >= 0 && fullIndex < preMatchKeys.length - 1;
-              const absoluteOrder = index + 1;
+              const canMoveUp = canEditOrder && movableIndex > 0;
+              const canMoveDown = canEditOrder && movableIndex >= 0 && movableIndex < movableKeys.length - 1;
+              const absoluteOrder = allRulesMode ? index + 1 : movableIndex + 1;
               const displayDetail = getRuleDisplayDetail(entry);
+              const displayTarget = entry.target.trim() || "目标分流组不可用";
               const shouldShowSourceLabel =
                 entry.sourceLabel.trim() !== entry.target.trim() &&
                 entry.sourceLabel.trim() !== "系统规则";
@@ -219,12 +226,12 @@ export function RulesManagementSection({
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="min-w-0 max-w-full break-words text-xs font-medium leading-5 text-white">{entry.summary}</span>
                           {shouldShowSourceLabel && (
-                            <Badge variant="outline" className="max-w-full border-white/10 bg-white/5 text-white/60">
+                            <Badge variant="outline" className="max-w-full shrink-0 whitespace-nowrap border-white/10 bg-white/5 text-white/60">
                               {entry.sourceLabel}
                             </Badge>
                           )}
-                          <Badge variant="outline" className="max-w-full border-indigo-500/30 bg-indigo-500/10 text-indigo-200">
-                            {entry.target}
+                          <Badge variant="outline" className="max-w-full shrink-0 whitespace-nowrap border-indigo-500/30 bg-indigo-500/10 text-indigo-200">
+                            {displayTarget}
                           </Badge>
                           {entry.noResolve && (
                             <Badge variant="outline" className="shrink-0 border-amber-500/30 bg-amber-500/10 text-amber-200">
@@ -288,22 +295,24 @@ export function RulesManagementSection({
                         className="h-8 w-16 shrink-0 rounded-lg border-white/10 bg-white/10 px-1 text-center text-xs disabled:cursor-not-allowed disabled:opacity-50"
                       />
                       <div className="flex flex-col">
-                        <button
+                        <IconButton
+                          label="上移规则"
+                          variant="ghost"
                           onClick={() => moveRule(entry.key, "up")}
                           disabled={!canMoveUp}
                           className="flex h-4 w-5 items-center justify-center text-white/30 transition-colors hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-30"
-                          title="上移"
                         >
                           <ArrowUp className="h-3 w-3" />
-                        </button>
-                        <button
+                        </IconButton>
+                        <IconButton
+                          label="下移规则"
+                          variant="ghost"
                           onClick={() => moveRule(entry.key, "down")}
                           disabled={!canMoveDown}
                           className="flex h-4 w-5 items-center justify-center text-white/30 transition-colors hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-30"
-                          title="下移"
                         >
                           <ArrowDown className="h-3 w-3" />
-                        </button>
+                        </IconButton>
                       </div>
                     </div>
                   </div>

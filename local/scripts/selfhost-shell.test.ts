@@ -3,8 +3,12 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const publicRoot = path.resolve(__dirname, "../..");
-const BASH_NON_INTERACTIVE_COMMAND =
-  "if command -v setsid >/dev/null 2>&1; then exec setsid \"$BASH\" -s; fi; exec \"$BASH\" -s";
+const BASH_NON_INTERACTIVE_COMMAND = "exec \"$BASH\" -s";
+const POSIX_BACKUP_MODE_ASSERTIONS = process.platform === "win32"
+  ? ": # NTFS permissions are verified by Windows ACL checks, not POSIX mode bits"
+  : `
+      [ "$unsafe_files" = "0" ]
+      [ "$unsafe_dirs" = "0" ]`;
 
 function runBash(script: string) {
   return spawnSync("bash", ["-lc", BASH_NON_INTERACTIVE_COMMAND], {
@@ -12,6 +16,7 @@ function runBash(script: string) {
     encoding: "utf8",
     input: script,
     timeout: 30_000,
+    detached: true,
     env: {
       ...process.env,
       LC_ALL: "C.UTF-8",
@@ -20,6 +25,23 @@ function runBash(script: string) {
 }
 
 describe("self-host shell scripts", () => {
+  it("preserves an explicit Docker config when Docker requires sudo", () => {
+    const result = runBash(`
+      set -Eeuo pipefail
+      export SUBBOOST_SCRIPT_SOURCE_ONLY=1
+      source local/scripts/install.sh
+      export DOCKER_CONFIG=/tmp/subboost-isolated-docker-config
+      DOCKER_RUNNER="sudo docker"
+      sudo() { printf 'sudo-call=%s\\n' "$*"; }
+      docker_cmd info
+    `);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(
+      "sudo-call=env DOCKER_CONFIG=/tmp/subboost-isolated-docker-config docker info",
+    );
+  });
+
   it("uses prompt defaults without /dev/tty errors in non-interactive mode", () => {
     const result = runBash(`
       set -Eeuo pipefail
@@ -238,13 +260,19 @@ ENV
       export SUBBOOST_DOCTOR_HEALTH_ATTEMPTS=3
       export SUBBOOST_DOCTOR_HEALTH_INTERVAL_SECONDS=0
       source local/scripts/subboost.sh
+      sudo_do() { "$@"; }
+      docker_calls_file="$home/docker-calls"
       docker() {
         if [ "$1" = "info" ]; then return 0; fi
         if [ "$1" = "compose" ]; then
+          printf '%s\\n' "$*" >> "$docker_calls_file"
           case "$*" in
             "compose version"*) return 0 ;;
+            *" config --services") printf 'app\\ndb\\ncron\\n'; return 0 ;;
             *" config") return 0 ;;
             *" pull") return 0 ;;
+            *"pg_dump -Fc"*) printf 'custom-dump'; return 0 ;;
+            *"pg_restore --list"*) cat >/dev/null; return 0 ;;
             *" up -d --remove-orphans") return 0 ;;
             *" up -d --no-deps --force-recreate app") return 0 ;;
             *" ps -q app") printf 'app-id\\n'; return 0 ;;
@@ -254,6 +282,7 @@ ENV
         fi
         if [ "$1" = "inspect" ]; then
           case "$*" in
+            *"{{.Image}}"*) printf 'sha256:old-image\\n'; return 0 ;;
             *".State.Status"*) printf 'running\\n'; return 0 ;;
             *".State.Health"*) printf 'healthy\\n'; return 0 ;;
           esac
@@ -275,6 +304,7 @@ ENV
       }
       update_cmd
       printf 'curl_count=%s\\n' "$(cat "$curl_count_file")"
+      cat "$docker_calls_file"
     `;
 
     const result = runBash(script);
@@ -284,6 +314,92 @@ ENV
     expect(result.stdout).not.toContain("健康检查: 异常");
     // wait_for_health checks live once per attempt, then status_cmd performs one final live+ready check.
     expect(result.stdout).toContain("curl_count=8");
+    expect(result.stdout).toContain("up -d --no-deps cron");
+  }, 10_000);
+
+  it("restarts rollback cron without recreating the healthy old app", () => {
+    const script = `
+      set -Eeuo pipefail
+      home="$(mktemp -d)"
+      trap 'rm -rf "$home"' EXIT
+      release_dir="$home/release"
+      mkdir -p "$release_dir" "$home/bin"
+      cat > "$release_dir/release.json" <<'JSON'
+{"image":"new-image","composeUrl":"docker-compose.image.yml","managerUrl":"subboost-manager"}
+JSON
+      printf 'services:\n  app:\n    image: \${SUBBOOST_IMAGE}\n' > "$release_dir/docker-compose.image.yml"
+      printf '#!/usr/bin/env bash\necho new-manager\n' > "$release_dir/subboost-manager"
+      printf '#!/usr/bin/env bash\necho old-manager\n' > "$home/bin/subboost"
+      cat > "$home/.env" <<ENV
+SUBBOOST_RELEASE_URL=file://$release_dir/release.json
+SUBBOOST_IMAGE=old-image
+SUBBOOST_CANDIDATE_IMAGE=old-candidate-image
+POSTGRES_DB=subboost
+POSTGRES_USER=subboost
+POSTGRES_PASSWORD=password
+DATABASE_URL=postgresql://subboost:password@db:5432/subboost?schema=public
+ENCRYPTION_KEY=key
+JWT_SECRET=jwt
+CRON_SECRET=cron
+APP_URL=http://127.0.0.1:31000
+SUBBOOST_PORT=31000
+ENV
+      : > "$home/docker-compose.yml"
+      export SUBBOOST_SCRIPT_SOURCE_ONLY=1
+      export SUBBOOST_HOME="$home"
+      export SUBBOOST_BIN="$home/bin/subboost"
+      export SUBBOOST_DOCTOR_HEALTH_ATTEMPTS=1
+      export SUBBOOST_DOCTOR_HEALTH_INTERVAL_SECONDS=0
+      source local/scripts/subboost.sh
+      sudo_do() { "$@"; }
+      docker_calls_file="$home/docker-calls"
+      docker() {
+        if [ "$1" = "info" ]; then return 0; fi
+        if [ "$1" = "compose" ]; then
+          printf '%s\\n' "$*" >> "$docker_calls_file"
+          printf 'image=%s candidate_image=%s command=%s\\n' "\${SUBBOOST_IMAGE:-}" "\${SUBBOOST_CANDIDATE_IMAGE:-}" "$*" >> "$docker_calls_file"
+          case "$*" in
+            "compose version"*) return 0 ;;
+            *" config --services") printf 'app\\ndb\\ncron\\n'; return 0 ;;
+            *" config" | *" pull" | *" stop cron app") return 0 ;;
+            *"pg_dump -Fc"*) printf 'custom-dump'; return 0 ;;
+            *"pg_restore --list"* | *"pg_restore --clean"*) cat >/dev/null; return 0 ;;
+            *"candidate-compose.yml up -d --no-deps cron") return 1 ;;
+            *" up -d "*) return 0 ;;
+            *" ps -q app") printf 'app-id\\n'; return 0 ;;
+          esac
+        fi
+        if [ "$1" = "inspect" ] && [ "$2" = "-f" ]; then
+          printf 'sha256:old-image\\n'
+        fi
+        return 0
+      }
+      curl() { return 0; }
+      update_status=0
+      if update_cmd; then
+        :
+      else
+        update_status=$?
+      fi
+      printf 'update_status=%s parent_image=%s parent_candidate_image=%s\\n' "$update_status" "$SUBBOOST_IMAGE" "$SUBBOOST_CANDIDATE_IMAGE"
+      cat "$docker_calls_file"
+      [ "$update_status" -eq 1 ]
+    `;
+
+    const result = runBash(script);
+
+    expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("Candidate update failed: candidate cron startup failed");
+    expect(result.stdout).toContain("Previous version restored successfully.");
+    expect(result.stdout).toContain(
+      "update_status=1 parent_image=old-image parent_candidate_image=old-candidate-image",
+    );
+    expect(result.stdout).toMatch(/image=new-image candidate_image=new-image command=compose.*candidate-compose\.yml up -d --no-deps cron$/m);
+    expect(result.stdout).toMatch(/image=new-image candidate_image=new-image command=compose.*candidate-compose\.yml stop cron app$/m);
+    expect(result.stdout).toMatch(/image=old-image candidate_image=old-candidate-image command=compose.*old-compose\.yml up -d db$/m);
+    expect(result.stdout).toMatch(/image=old-image candidate_image=old-candidate-image command=compose.*old-compose\.yml up -d app$/m);
+    expect(result.stdout).toMatch(/image=old-image candidate_image=old-candidate-image command=compose.*old-compose\.yml up -d --no-deps cron$/m);
+    expect(result.stdout).not.toMatch(/old-compose\.yml.*up -d cron(?:\s|$)/);
   }, 10_000);
 
   it("uses refreshed release metadata before pulling during update", () => {
@@ -301,6 +417,7 @@ JSON
       cat > "$home/.env" <<ENV
 SUBBOOST_RELEASE_URL=file://$release_dir/release.json
 SUBBOOST_IMAGE=old-image
+SUBBOOST_CANDIDATE_IMAGE=old-candidate-image
 POSTGRES_DB=subboost
 POSTGRES_USER=subboost
 POSTGRES_PASSWORD=password
@@ -324,15 +441,24 @@ ENV
       docker_log="$home/docker-log"
       : > "$docker_log"
       docker() {
+        printf 'command=%s\n' "$*" >> "$docker_log"
         if [ "$1" = "info" ]; then return 0; fi
         if [ "$1" = "compose" ]; then
           case "$*" in
+            *"candidate-compose.yml"*)
+              printf 'candidate_image=%s candidate_release_image=%s command=%s\n' "\${SUBBOOST_IMAGE:-}" "\${SUBBOOST_CANDIDATE_IMAGE:-}" "$*" >> "$docker_log"
+              ;;
+          esac
+          case "$*" in
             "compose version"*) return 0 ;;
+            *" config --services") printf 'app\\ndb\\ncron\\n'; return 0 ;;
             *" config") return 0 ;;
             *" pull")
               printf 'pull_image=%s\\n' "\${SUBBOOST_IMAGE:-}" >> "$docker_log"
               return 0
               ;;
+            *"pg_dump -Fc"*) printf 'custom-dump'; return 0 ;;
+            *"pg_restore --list"*) cat >/dev/null; return 0 ;;
             *" up -d --remove-orphans") return 0 ;;
             *" up -d --no-deps --force-recreate app") return 0 ;;
             *" ps -q app") printf 'app-id\\n'; return 0 ;;
@@ -342,6 +468,7 @@ ENV
         fi
         if [ "$1" = "inspect" ]; then
           case "$*" in
+            *"{{.Image}}"*) printf 'sha256:old-image\\n'; return 0 ;;
             *".State.Status"*) printf 'running\\n'; return 0 ;;
             *".State.Health"*) printf 'healthy\\n'; return 0 ;;
           esac
@@ -358,9 +485,26 @@ ENV
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("pull_image=new-image");
+    expect(result.stdout).not.toContain("candidate_image=old-image");
+    expect(result.stdout).not.toContain("candidate_release_image=old-candidate-image");
+    expect(result.stdout).toMatch(/candidate_image=new-image candidate_release_image=new-image command=compose.*candidate-compose\.yml config$/m);
+    expect(result.stdout).toMatch(/candidate_image=new-image candidate_release_image=new-image command=compose.*candidate-compose\.yml config --services$/m);
+    expect(result.stdout).toMatch(/candidate_image=new-image candidate_release_image=new-image command=compose.*candidate-compose\.yml pull$/m);
+    expect(result.stdout).toMatch(/candidate_image=new-image candidate_release_image=new-image command=compose.*candidate-compose\.yml up -d db$/m);
+    expect(result.stdout).toMatch(/candidate_image=new-image candidate_release_image=new-image command=compose.*candidate-compose\.yml up -d --no-deps app$/m);
+    expect(result.stdout).toMatch(/candidate_image=new-image candidate_release_image=new-image command=compose.*candidate-compose\.yml up -d --no-deps cron$/m);
     expect(result.stdout).toContain("SUBBOOST_IMAGE=new-image");
+    expect(result.stdout).toContain("SUBBOOST_CANDIDATE_IMAGE=new-image");
     expect(result.stdout).toContain("SUBBOOST_COMPOSE_URL=file://");
     expect(result.stdout).toContain("SUBBOOST_MANAGER_URL=file://");
+    const pullIndex = result.stdout.search(/^command=compose.* pull$/m);
+    const pauseIndex = result.stdout.indexOf(" stop cron app");
+    const dumpIndex = result.stdout.indexOf("pg_dump -Fc");
+    const candidateStartIndex = result.stdout.indexOf("candidate-compose.yml", dumpIndex);
+    expect(pullIndex).toBeGreaterThanOrEqual(0);
+    expect(pauseIndex).toBeGreaterThan(pullIndex);
+    expect(dumpIndex).toBeGreaterThan(pauseIndex);
+    expect(candidateStartIndex).toBeGreaterThan(dumpIndex);
   }, 10_000);
 
   it("migrates old fixed official update sources to stable latest", () => {
@@ -414,11 +558,14 @@ JSON
         if [ "$1" = "compose" ]; then
           case "$*" in
             "compose version"*) return 0 ;;
+            *" config --services") printf 'app\\ndb\\ncron\\n'; return 0 ;;
             *" config") return 0 ;;
             *" pull")
               printf 'pull_image=%s\\n' "\${SUBBOOST_IMAGE:-}" >> "$docker_log"
               return 0
               ;;
+            *"pg_dump -Fc"*) printf 'custom-dump'; return 0 ;;
+            *"pg_restore --list"*) cat >/dev/null; return 0 ;;
             *" up -d --remove-orphans") return 0 ;;
             *" up -d --no-deps --force-recreate app") return 0 ;;
             *" ps -q app") printf 'app-id\\n'; return 0 ;;
@@ -428,6 +575,7 @@ JSON
         fi
         if [ "$1" = "inspect" ]; then
           case "$*" in
+            *"{{.Image}}"*) printf 'sha256:old-image\\n'; return 0 ;;
             *".State.Status"*) printf 'running\\n'; return 0 ;;
             *".State.Health"*) printf 'healthy\\n'; return 0 ;;
           esac
@@ -495,22 +643,30 @@ ENV
       source local/scripts/subboost.sh
       sudo_do() { "$@"; }
       load_env() { :; }
-      compose() { printf 'dump'; }
+      compose() {
+        case "$*" in
+          *"pg_dump -Fc"*) printf 'custom-dump' ;;
+          *"pg_restore --list"*) cat >/dev/null ;;
+        esac
+      }
       cat > "$ENV_FILE" <<'ENV'
 POSTGRES_DB=subboost
 POSTGRES_USER=subboost
 ENV
       for i in $(seq -w 1 12); do
-        : > "$BACKUP_DIR/subboost-20240101T0000\${i}Z.sql.gz"
+        : > "$BACKUP_DIR/subboost-20240101T0000\${i}Z.dump"
         : > "$BACKUP_DIR/subboost-20240101T0000\${i}Z.env"
       done
       backup_cmd >/dev/null
-      sql_count="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'subboost-*.sql.gz' | wc -l | tr -d '[:space:]')"
+      sql_count="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'subboost-*.dump' | wc -l | tr -d '[:space:]')"
       env_count="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'subboost-*.env' | wc -l | tr -d '[:space:]')"
-      printf 'sql=%s env=%s\\n' "$sql_count" "$env_count"
+      unsafe_files="$(find "$BACKUP_DIR" -maxdepth 1 -type f ! -perm 600 | wc -l | tr -d '[:space:]')"
+      unsafe_dirs="$(find "$BACKUP_DIR" -maxdepth 0 -type d ! -perm 700 | wc -l | tr -d '[:space:]')"
+      printf 'sql=%s env=%s unsafe_files=%s unsafe_dirs=%s\\n' "$sql_count" "$env_count" "$unsafe_files" "$unsafe_dirs"
       [ "$sql_count" = "10" ]
       [ "$env_count" = "10" ]
-      [ ! -e "$BACKUP_DIR/subboost-20240101T000001Z.sql.gz" ]
+      ${POSIX_BACKUP_MODE_ASSERTIONS}
+      [ ! -e "$BACKUP_DIR/subboost-20240101T000001Z.dump" ]
       [ ! -e "$BACKUP_DIR/subboost-20240101T000001Z.env" ]
     `;
 
@@ -518,5 +674,8 @@ ENV
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("sql=10 env=10");
+    if (process.platform !== "win32") {
+      expect(result.stdout).toContain("unsafe_files=0 unsafe_dirs=0");
+    }
   });
 });

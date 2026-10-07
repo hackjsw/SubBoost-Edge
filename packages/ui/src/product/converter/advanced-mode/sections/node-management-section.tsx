@@ -6,19 +6,35 @@ import { Badge } from "@subboost/ui/components/ui/badge";
 import { Button } from "@subboost/ui/components/ui/button";
 import { confirmDialog } from "@subboost/ui/components/ui/confirm-dialog";
 import { Input } from "@subboost/ui/components/ui/input";
-import { Switch } from "@subboost/ui/components/ui/switch";
+import { SwitchField } from "@subboost/ui/components/ui/switch-field";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { DEFAULT_NODE_NAME_TEMPLATE } from "@subboost/core/node-name-template";
+import {
+  DEFAULT_NODE_NAME_FILTER_CONFIG,
+  resolveNodeNameFilter,
+} from "@subboost/core/subscription/node-name-filter";
 import { useConfigStore, type SubscriptionSource } from "@subboost/ui/store/config-store";
 import { useProductInteractionAdapter } from "@subboost/ui/product/interactions";
 import { useProductApiAdapter, type NodeConnectivityResult } from "@subboost/ui/product/api-adapter";
 import { SectionHeader } from "../section-header";
+import { NodeManagementAutoProcessingDialog } from "./node-management/auto-processing-dialog";
 import { NodeManagementBulkEditDialog } from "./node-management/bulk-edit-dialog";
 import { NodeManagementNodeList } from "./node-management/node-list";
 
 const NODE_SOURCE_IDS_KEY = "_sourceIds";
 const ORIGIN_NAME_KEY = "_originName";
 const LISTENER_PORT_WARNING_STORAGE_KEY = "subboost.listenerPortWarningAccepted";
+
+function canGenerateProxyProvider(source: SubscriptionSource): boolean {
+  if (source.type !== "url" || source.useProxyProviders !== true) return false;
+  const content = typeof source.content === "string" ? source.content.trim() : "";
+  if (!content) return false;
+  try {
+    return ["http:", "https:"].includes(new URL(content).protocol);
+  } catch {
+    return false;
+  }
+}
 
 function hasAcceptedListenerPortWarning(): boolean {
   if (typeof window === "undefined") return false;
@@ -48,6 +64,7 @@ export function NodeManagementSection({
   const {
     sources,
     nodes,
+    nodeNameFilter,
     deletedNodeNames,
     deletedNodes,
     removeNode,
@@ -55,12 +72,27 @@ export function NodeManagementSection({
     renameNode,
     restoreNodeName,
     bulkRenameNodes,
-    moveNode,
     setNodeOrder,
     listenerPorts,
     setListenerPort,
     bulkSetListenerPorts,
+    setNodeNameFilter,
   } = useConfigStore();
+
+  const normalizedNodeNameFilter = nodeNameFilter ?? DEFAULT_NODE_NAME_FILTER_CONFIG;
+  const activeFilterCount = normalizedNodeNameFilter.enabled
+    ? (normalizedNodeNameFilter.includeEnabled !== false ? normalizedNodeNameFilter.includeRegexes?.length ?? 0 : 0) +
+      (normalizedNodeNameFilter.excludeEnabled !== false ? normalizedNodeNameFilter.excludeRegexes.length : 0)
+    : 0;
+  const nodeNameFilterResult = React.useMemo(
+    () => resolveNodeNameFilter(nodes, normalizedNodeNameFilter),
+    [nodes, normalizedNodeNameFilter]
+  );
+  const effectiveNodes = nodeNameFilterResult.effectiveNodes;
+  const hasProxyProviders = React.useMemo(
+    () => sources.some(canGenerateProxyProvider),
+    [sources]
+  );
 
   const deletedMarkedNodes = React.useMemo(() => {
     const activeOrigins = new Set<string>();
@@ -97,7 +129,6 @@ export function NodeManagementSection({
   const [nameRulesOpen, setNameRulesOpen] = React.useState(false);
   const [nodeSearchKeyword, setNodeSearchKeyword] = React.useState("");
   const [listenerPortEnabled, setListenerPortEnabled] = React.useState(false);
-  const listenerPortSwitchId = React.useId();
   const interactions = useProductInteractionAdapter();
   const productApi = useProductApiAdapter();
 
@@ -109,12 +140,12 @@ export function NodeManagementSection({
   const [connectivityTestSummary, setConnectivityTestSummary] = React.useState<string | null>(null);
 
   const testConnectivity = React.useCallback(async () => {
-    if (!productApi.connectivity?.testNodes || nodes.length === 0 || testingConnectivity) return;
+    if (!productApi.connectivity?.testNodes || effectiveNodes.length === 0 || testingConnectivity) return;
     setTestingConnectivity(true);
-    setConnectivityTestSummary(`正在测试 ${nodes.length} 个节点...`);
+    setConnectivityTestSummary(`正在测试 ${effectiveNodes.length} 个节点...`);
     const startedAt = Date.now();
     try {
-      const results = await productApi.connectivity.testNodes(nodes);
+      const results = await productApi.connectivity.testNodes(effectiveNodes);
       setConnectivityResults(
         Object.fromEntries(results.filter((result) => typeof result.name === "string").map((result) => [result.name, result]))
       );
@@ -132,7 +163,8 @@ export function NodeManagementSection({
     } finally {
       setTestingConnectivity(false);
     }
-  }, [nodes, productApi.connectivity, testingConnectivity]);
+  }, [effectiveNodes, productApi.connectivity, testingConnectivity]);
+  const [autoProcessingOpen, setAutoProcessingOpen] = React.useState(false);
 
   const hasConfiguredListenerPorts = React.useMemo(
     () => Object.values(listenerPorts).some((port) => Number.isInteger(port) && port >= 1 && port <= 65535),
@@ -190,15 +222,44 @@ export function NodeManagementSection({
 
   const nodeIndexByName = React.useMemo(() => {
     const map = new Map<string, number>();
-    nodes.forEach((n, i) => map.set(n.name, i));
+    effectiveNodes.forEach((n, i) => map.set(n.name, i));
     return map;
-  }, [nodes]);
+  }, [effectiveNodes]);
+  const effectiveNodeNames = React.useMemo(
+    () => effectiveNodes.map((node) => node.name),
+    [effectiveNodes]
+  );
 
   const visibleNodes = React.useMemo(() => {
     const keyword = nodeSearchKeyword.trim().toLowerCase();
-    if (!keyword) return nodes;
-    return nodes.filter((node) => node.name.toLowerCase().includes(keyword));
-  }, [nodeSearchKeyword, nodes]);
+    if (!keyword) return effectiveNodes;
+    return effectiveNodes.filter((node) => node.name.toLowerCase().includes(keyword));
+  }, [effectiveNodes, nodeSearchKeyword]);
+
+  const setEffectiveNodeOrder = React.useCallback(
+    (nodeName: string, order: number) => {
+      const currentIndex = nodeIndexByName.get(nodeName);
+      if (currentIndex === undefined || !Number.isFinite(order)) return;
+      const targetIndex = Math.max(
+        0,
+        Math.min(effectiveNodes.length - 1, Math.floor(order) - 1)
+      );
+      if (targetIndex === currentIndex) return;
+      setNodeOrder(nodeName, targetIndex + 1, effectiveNodeNames);
+    },
+    [effectiveNodeNames, effectiveNodes.length, nodeIndexByName, setNodeOrder]
+  );
+
+  const moveEffectiveNode = React.useCallback(
+    (nodeName: string, direction: "up" | "down") => {
+      const currentIndex = nodeIndexByName.get(nodeName);
+      if (currentIndex === undefined) return;
+      const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      if (nextIndex < 0 || nextIndex >= effectiveNodes.length) return;
+      setEffectiveNodeOrder(nodeName, nextIndex + 1);
+    },
+    [effectiveNodes.length, nodeIndexByName, setEffectiveNodeOrder]
+  );
 
   const visibleDeletedMarkedNodes = React.useMemo(() => {
     const keyword = nodeSearchKeyword.trim().toLowerCase();
@@ -442,9 +503,9 @@ export function NodeManagementSection({
         onToggle={onToggle}
         badge={
           <div className="ml-auto flex items-center gap-2">
-            {nodes.length > 0 ? (
+            {effectiveNodes.length > 0 ? (
               <Badge variant="outline" className="border-green-500/50 bg-green-500/10 text-green-300">
-                {nodes.length} 个节点
+                {effectiveNodes.length} 个节点
               </Badge>
             ) : (
               <Badge variant="secondary">无节点</Badge>
@@ -460,41 +521,53 @@ export function NodeManagementSection({
 
       {isExpanded && (
         <div className="mt-2 pl-6">
-          <div className="flex items-center gap-2 pb-2 pr-2">
-            <div className="relative flex-1 min-w-0">
+          <div className="flex flex-col gap-2 pb-2 pr-2 sm:flex-row sm:items-center">
+            <div className="relative w-full sm:min-w-0 sm:flex-1">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/30" />
               <Input
                 value={nodeSearchKeyword}
                 onChange={(e) => setNodeSearchKeyword(e.target.value)}
                 placeholder="搜索节点..."
-                disabled={nodes.length === 0 && deletedMarkedNodes.length === 0}
+                disabled={effectiveNodes.length === 0 && deletedMarkedNodes.length === 0}
                 className="pl-7 text-xs h-7 bg-white/5 border-white/10"
               />
             </div>
-            <div
-              className="flex h-7 shrink-0 items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2"
-              title="为节点配置 socks5/http 协议的本地监听端口"
-            >
-              <Switch
-                id={listenerPortSwitchId}
-                checked={isListenerPortVisible}
-                onCheckedChange={handleListenerPortChange}
-                disabled={nodes.length === 0 && !hasConfiguredListenerPorts}
-                aria-label="监听端口"
-              />
-              <label htmlFor={listenerPortSwitchId} className="cursor-pointer select-none text-xs text-white/70">
-                监听端口
-              </label>
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <div className="shrink-0" title="为节点配置 socks5/http 协议的本地监听端口">
+                <SwitchField
+                  label="监听端口"
+                  checked={isListenerPortVisible}
+                  onCheckedChange={handleListenerPortChange}
+                  disabled={effectiveNodes.length === 0 && !hasConfiguredListenerPorts}
+                  density="compact"
+                />
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setNameRulesOpen(true)}
+                disabled={effectiveNodes.length === 0}
+                className="h-7 shrink-0 px-2 text-xs"
+              >
+                批量编辑
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setAutoProcessingOpen(true)}
+                className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+              >
+                自动处理
+                {activeFilterCount > 0 ? (
+                  <Badge
+                    variant="outline"
+                    className="h-4 min-w-4 border-indigo-400/40 bg-indigo-400/10 px-1 text-[10px] leading-none text-indigo-200"
+                  >
+                    {activeFilterCount}
+                  </Badge>
+                ) : null}
+              </Button>
             </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setNameRulesOpen(true)}
-              disabled={nodes.length === 0}
-              className="h-7 px-2 text-xs"
-            >
-              批量编辑
-            </Button>
             {productApi.connectivity?.testNodes && (
               <React.Fragment>
               <Button
@@ -502,7 +575,7 @@ export function NodeManagementSection({
                 variant="outline"
                 size="sm"
                 onClick={() => void testConnectivity()}
-                disabled={nodes.length === 0 || testingConnectivity}
+                disabled={effectiveNodes.length === 0 || testingConnectivity}
                 className="h-7 px-2 text-xs"
                 title="从 Cloudflare 测试节点地址的 HTTP/HTTPS 连通性"
               >
@@ -519,7 +592,7 @@ export function NodeManagementSection({
           <NodeManagementBulkEditDialog
             open={nameRulesOpen}
             onOpenChange={setNameRulesOpen}
-            nodes={nodes}
+            nodes={effectiveNodes}
             resolveNodeNameParts={resolveNodeNameParts}
             bulkRenameNodes={bulkRenameNodes}
             listenerPortEnabled={isListenerPortVisible}
@@ -528,8 +601,17 @@ export function NodeManagementSection({
             onClearListenerPortUiState={clearListenerPortUiState}
           />
 
-          <NodeManagementNodeList
+          <NodeManagementAutoProcessingDialog
+            open={autoProcessingOpen}
+            onOpenChange={setAutoProcessingOpen}
             nodes={nodes}
+            config={normalizedNodeNameFilter}
+            hasProxyProviders={hasProxyProviders}
+            onSave={setNodeNameFilter}
+          />
+
+          <NodeManagementNodeList
+            nodes={effectiveNodes}
             deletedMarkedNodes={deletedMarkedNodes}
             visibleNodes={visibleNodes}
             visibleDeletedMarkedNodes={visibleDeletedMarkedNodes}
@@ -550,8 +632,8 @@ export function NodeManagementSection({
             orderDrafts={orderDrafts}
             setOrderDrafts={setOrderDrafts}
             nodeIndexByName={nodeIndexByName}
-            setNodeOrder={setNodeOrder}
-            moveNode={moveNode}
+            setNodeOrder={setEffectiveNodeOrder}
+            moveNode={moveEffectiveNode}
             isListenerPortVisible={isListenerPortVisible}
             removeNode={removeNode}
             restoreDeletedNode={restoreDeletedNode}

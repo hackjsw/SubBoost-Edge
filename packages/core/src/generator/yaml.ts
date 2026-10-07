@@ -46,8 +46,10 @@ const PROXY_FIELD_ORDER_PROTOCOL: Partial<Record<KnownNodeType, string[]>> = {
   snell: ["psk", "version", "obfs-opts", "reuse"],
   direct: ["udp", "ip-version", "interface-name", "routing-mark"],
   dns: ["udp"],
+  reject: [],
   mieru: ["username", "password", "transport", "port-range", "multiplexing", "handshake-mode"],
   masque: ["username", "password"],
+  trusttunnel: ["username", "password", "health-check", "quic", "congestion-controller", "max-connections", "min-streams", "max-streams"],
   sudoku: [
     "key",
     "aead-method",
@@ -237,6 +239,19 @@ function toInlineYaml(value: unknown): string {
   return String(value);
 }
 
+function toBlockSequenceScalar(value: string): string {
+  const trimmed = value.trim();
+  const ambiguous =
+    !value ||
+    trimmed !== value ||
+    /[\r\n#]/.test(value) ||
+    /:\s/.test(value) ||
+    /^[\-?:,\[\]{}&*!|>'"%@`]/.test(value) ||
+    /^(?:null|~|true|false|yes|no|on|off)$/i.test(value) ||
+    /^[+-]?(?:\d+|\d*\.\d+|\d+\.\d*)(?:[eE][+-]?\d+)?$/.test(value);
+  return ambiguous ? `"${escapeYamlDoubleQuotedString(value)}"` : value;
+}
+
 function normalizeDnsPolicyValue(value: unknown): DnsPolicyValue | null {
   if (Array.isArray(value)) {
     const servers = value
@@ -372,7 +387,7 @@ export function configToYaml(config: ClashConfig): string {
   lines.push("rules:");
   if (config.rules) {
     for (const rule of config.rules) {
-      lines.push(`  - ${rule}`);
+      lines.push(`  - ${toBlockSequenceScalar(rule)}`);
     }
   }
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DiffHighlight, YamlHighlight } from "./diff-highlight";
+import { YamlHighlight } from "./diff-highlight";
 
 const reactMocks = vi.hoisted(() => ({
   useMemo: vi.fn((factory: () => unknown) => factory()),
@@ -7,7 +7,8 @@ const reactMocks = vi.hoisted(() => ({
   useState: vi.fn((initial: unknown) => [initial, vi.fn()]),
 }));
 
-vi.mock("react", () => ({
+vi.mock("react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react")>()),
   useMemo: reactMocks.useMemo,
   useEffect: reactMocks.useEffect,
   useState: reactMocks.useState,
@@ -51,33 +52,6 @@ function collectHtml(value: unknown): string[] {
   return html;
 }
 
-describe("DiffHighlight", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("returns null for empty input", () => {
-    expect(DiffHighlight({ oldText: "", newText: "" })).toBeNull();
-  });
-
-  it("renders line-level additions and removals", () => {
-    const rendered = DiffHighlight({
-      oldText: "a\nb\nc",
-      newText: "a\nx\nc\nd",
-      className: "custom",
-    });
-
-    const text = collectText(rendered);
-    expect(text).toContain("变更统计:");
-    expect(text).toContain("+2 行");
-    expect(text).toContain("-1 行");
-    expect(text).toContain("a");
-    expect(text).toContain("b");
-    expect(text).toContain("x");
-    expect(text).toContain("d");
-  });
-});
-
 describe("YamlHighlight", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -101,7 +75,7 @@ describe("YamlHighlight", () => {
     });
 
     const html = collectHtml(rendered).join("\n");
-    expect(html).toContain("text-white/50");
+    expect(html).toContain("text-fg-50");
     expect(html).toContain("text-green-400");
     expect(html).toContain("text-orange-400");
     expect(html).toContain("text-emerald-400");

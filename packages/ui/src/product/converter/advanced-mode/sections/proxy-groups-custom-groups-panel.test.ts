@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     proxyGroupAdded: vi.fn(),
   },
   toast: vi.fn(),
+  confirmDialog: vi.fn(async () => true),
 }));
 
 const stateMock = vi.hoisted(() => ({
@@ -64,10 +65,18 @@ vi.mock("@subboost/ui/components/ui/input", () => ({
   },
 }));
 vi.mock("@subboost/ui/components/ui/toaster", () => ({ toast: mocks.toast }));
+vi.mock("@subboost/ui/components/ui/confirm-dialog", () => ({ confirmDialog: mocks.confirmDialog }));
 vi.mock("@subboost/core/generator/proxy-groups", () => ({
   PROXY_GROUP_MODULES: [
-    { id: "auto", name: "Auto" },
-    { id: "fallback", name: "Fallback" },
+    {
+      id: "auto",
+      name: "Auto",
+      rules: [{ id: "builtin-a", name: "Builtin A", behavior: "domain", path: "geosite/builtin-a.mrs" }],
+    },
+    { id: "fallback", name: "Fallback", rules: [] },
+    { id: "cn", name: "CN", rules: [
+      { id: "cn-ip", name: "CN IP", behavior: "ipcidr", path: "geoip/cn.mrs", noResolve: true },
+    ] },
   ],
 }));
 vi.mock("@subboost/core/proxy-group-name", () => ({
@@ -119,6 +128,12 @@ vi.mock("./proxy-group-type-menu", () => ({
   getLoadBalanceStrategyLabel: (value: string) => `strategy:${value}`,
   getProxyGroupTypeLabel: (value: string) => `type:${value}`,
 }));
+vi.mock("./group-advanced-settings-dialog", () => ({
+  GroupAdvancedSettingsDialog: (props: any) => {
+    mocks.captures.settingsDialogs.push(props);
+    return null;
+  },
+}));
 
 import { ProxyGroupsCustomGroupsPanel } from "./proxy-groups-custom-groups-panel";
 
@@ -156,6 +171,7 @@ function renderPanel(overrides: Record<number, unknown> = {}) {
   mocks.captures.ruleRows = [];
   mocks.captures.manualRows = [];
   mocks.captures.moveMenus = [];
+  mocks.captures.settingsDialogs = [];
   try {
     const html = renderToStaticMarkup(React.createElement(ProxyGroupsCustomGroupsPanel));
     return { html, setters: stateMock.setters };
@@ -167,7 +183,7 @@ function renderPanel(overrides: Record<number, unknown> = {}) {
 describe("ProxyGroupsCustomGroupsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.captures = { buttons: [], inputs: [], typeMenus: [], ruleRows: [], manualRows: [], moveMenus: [] };
+    mocks.captures = { buttons: [], inputs: [], typeMenus: [], ruleRows: [], manualRows: [], moveMenus: [], settingsDialogs: [] };
     mocks.store = {
       ruleProviderBaseUrl: "https://rules.example/",
       enabledProxyGroups: ["auto"],
@@ -176,6 +192,7 @@ describe("ProxyGroupsCustomGroupsPanel", () => {
       customRules: [{ id: "manual-1", target: "🧩 Custom" }],
       customProxyGroups: [customGroup, targetGroup],
       customRuleSets: [sourceRule],
+      builtinRuleEdits: {},
       dialerProxyGroups: [{ name: "Dialer" }],
       addCustomProxyGroup: vi.fn(),
       removeCustomProxyGroup: vi.fn(),
@@ -186,6 +203,7 @@ describe("ProxyGroupsCustomGroupsPanel", () => {
       removeCustomRule: vi.fn(),
       toggleProxyGroup: vi.fn(),
       addModuleRules: vi.fn(),
+      setGroupListener: vi.fn(),
     };
   });
 
@@ -248,14 +266,42 @@ describe("ProxyGroupsCustomGroupsPanel", () => {
     renameInput.onKeyDown({ key: "Escape" });
     expect(setters[3]).toHaveBeenCalledWith(null);
 
-    renderPanel({ 0: new Set(["custom-1"]) });
-    mocks.captures.typeMenus[0].onChange({ groupType: "load-balance", strategy: "round-robin" });
+    renderPanel({ 0: new Set(["custom-1"]), 6: "custom-1" });
+    mocks.captures.settingsDialogs[0].onSave({
+      groupType: "load-balance",
+      strategy: "round-robin",
+      listener: null,
+    });
     expect(mocks.store.updateCustomProxyGroup).toHaveBeenCalledWith("custom-1", {
       groupType: "load-balance",
       strategy: "round-robin",
     });
+    expect(mocks.store.setGroupListener).toHaveBeenCalledWith({ kind: "custom", id: "custom-1" }, null);
 
     mocks.captures.buttons.find((props: any) => props.title === "删除").onClick({ stopPropagation: vi.fn() });
+    expect(mocks.store.removeCustomProxyGroup).toHaveBeenCalledWith("custom-1");
+  });
+
+  it("confirms and cascades listener removal when deleting a custom group with a binding", async () => {
+    const flushAsync = async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    mocks.store.groupListeners = [{ id: "gl-1", target: { kind: "custom", id: "custom-1" }, port: 7891 }];
+    renderPanel({ 0: new Set(["custom-1"]) });
+    const deleteButton = mocks.captures.buttons.find((props: any) => props.title === "删除");
+
+    mocks.confirmDialog.mockResolvedValueOnce(false);
+    deleteButton.onClick({ stopPropagation: vi.fn() });
+    await flushAsync();
+    expect(mocks.confirmDialog).toHaveBeenCalledTimes(1);
+    expect(mocks.confirmDialog).toHaveBeenCalledWith(expect.objectContaining({ variant: "warning" }));
+    expect(mocks.store.removeCustomProxyGroup).not.toHaveBeenCalled();
+
+    mocks.confirmDialog.mockResolvedValueOnce(true);
+    deleteButton.onClick({ stopPropagation: vi.fn() });
+    await flushAsync();
     expect(mocks.store.removeCustomProxyGroup).toHaveBeenCalledWith("custom-1");
   });
 
@@ -290,11 +336,45 @@ describe("ProxyGroupsCustomGroupsPanel", () => {
 
   });
 
+  it("shows builtin rules moved into a custom group and wires their actions", () => {
+    mocks.store.builtinRuleEdits = {
+      "module:auto:builtin-a": { target: { kind: "custom", id: "custom-1" } },
+    };
+
+    renderPanel({ 0: new Set(["custom-1"]) });
+
+    expect(mocks.captures.ruleRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Builtin A", source: "preset", state: "active" }),
+      ]),
+    );
+    const builtinMove = mocks.captures.moveMenus.find((menu: any) => menu.ariaLabel === "移动 Builtin A 规则集");
+    builtinMove.onMove({ kind: "module", id: "fallback", name: "Fallback" });
+    expect(mocks.store.moveModuleRule).toHaveBeenCalledWith("custom-1", "builtin-a", {
+      kind: "module",
+      id: "fallback",
+      name: "Fallback",
+    });
+
+    builtinMove.onMove({ kind: "module", id: "auto", name: "Auto" });
+    expect(mocks.store.moveModuleRule).toHaveBeenLastCalledWith("custom-1", "builtin-a", {
+      kind: "module", id: "auto", name: "Auto",
+    });
+
+    mocks.captures.buttons.find((button: any) => button["aria-label"] === "删除 Builtin A 规则集").onClick();
+    expect(mocks.store.removeModuleRule).toHaveBeenCalledWith("custom-1", "builtin-a");
+  });
+
   it("updates manual rules, deletes rule rows, and renders empty state", () => {
     renderPanel({ 0: new Set(["custom-1"]) });
 
-    mocks.captures.manualRows[0].onMove({ rule: { id: "manual-1" }, index: 0 }, { name: "Auto" });
-    expect(mocks.store.updateCustomRule).toHaveBeenCalledWith("manual-1", { target: "Auto" });
+    mocks.captures.manualRows[0].onMove(
+      { rule: { id: "manual-1" }, index: 0 },
+      { kind: "module", id: "auto", name: "Auto" },
+    );
+    expect(mocks.store.updateCustomRule).toHaveBeenCalledWith("manual-1", {
+      target: { kind: "module", id: "auto" },
+    });
     mocks.captures.manualRows[0].onRemove({ index: 0 });
     expect(mocks.store.removeCustomRule).toHaveBeenCalledWith(0);
 
@@ -304,6 +384,35 @@ describe("ProxyGroupsCustomGroupsPanel", () => {
     mocks.store.customProxyGroups = [];
     renderPanel();
     expect(mocks.captures.ruleRows).toEqual([]);
+  });
+
+  it.each([true, false])("keeps moved CN IP no-resolve=%s and hides disabled rules", (noResolve) => {
+    mocks.store.cnIpNoResolve = noResolve;
+    mocks.store.builtinRuleEdits = {
+      "module:cn:cn-ip": { target: { kind: "custom", id: "custom-1" } },
+    };
+    renderPanel({ 0: new Set(["custom-1"]) });
+    const row = mocks.captures.ruleRows.find((item: any) => item.name === "CN IP");
+    expect(row.state).toBe("active");
+    expect(row.noResolve).toBe(noResolve);
+
+    mocks.store.builtinRuleEdits["module:cn:cn-ip"].enabled = false;
+    renderPanel({ 0: new Set(["custom-1"]) });
+    expect(mocks.captures.ruleRows.some((item: any) => item.name === "CN IP")).toBe(false);
+  });
+
+  it("follows custom target identity after rename and retargeting", () => {
+    mocks.store.builtinRuleEdits = {
+      "module:auto:builtin-a": { target: { kind: "custom", id: "custom-1" } },
+    };
+    mocks.store.customProxyGroups = [{ ...customGroup, name: "Renamed" }, targetGroup];
+    renderPanel({ 0: new Set(["custom-1", "custom-2"]) });
+    const getMenu = () => mocks.captures.moveMenus.find((menu: any) => menu.ariaLabel === "移动 Builtin A 规则集");
+    expect(getMenu().currentTarget).toEqual({ kind: "custom", id: "custom-1", name: "Renamed" });
+    mocks.store.builtinRuleEdits["module:auto:builtin-a"].target.id = "custom-2";
+    renderPanel({ 0: new Set(["custom-1", "custom-2"]) });
+    expect(getMenu().currentTarget.id).toBe("custom-2");
+    expect(mocks.captures.ruleRows.filter((item: any) => item.name === "Builtin A")).toHaveLength(1);
   });
 
   it("covers custom group edit controls and duplicate rename guard", () => {
@@ -334,7 +443,16 @@ describe("ProxyGroupsCustomGroupsPanel", () => {
     expect(stateMock.setters[4]).toHaveBeenCalledWith("🧩 Custom");
     expect(stateMock.setters[5]).toHaveBeenCalledWith("");
 
-    mocks.captures.typeMenus[0].onChange({ groupType: "select" });
+    const settingsButton = mocks.captures.buttons.find(
+      (props: any) => props["aria-label"] === "打开 🧩 Custom 高级设置"
+    );
+    const stopSettingsClick = vi.fn();
+    settingsButton.onClick({ stopPropagation: stopSettingsClick });
+    expect(stopSettingsClick).toHaveBeenCalled();
+    expect(stateMock.setters[6]).toHaveBeenCalledWith("custom-1");
+
+    renderPanel({ 0: new Set(["custom-1"]), 6: "custom-1" });
+    mocks.captures.settingsDialogs[0].onSave({ groupType: "select", listener: null });
     expect(mocks.store.updateCustomProxyGroup).toHaveBeenCalledWith("custom-1", {
       groupType: "select",
       strategy: undefined,

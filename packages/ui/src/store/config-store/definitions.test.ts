@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TEMPLATES } from "@subboost/core/templates";
 import { DEFAULT_SUBBOOST_CONFIG } from "@subboost/core/config/defaults";
+import { DEFAULT_NODE_NAME_FILTER_CONFIG } from "@subboost/core/subscription/node-name-filter";
 
 const mocks = vi.hoisted(() => ({
   importSource: vi.fn(),
@@ -43,6 +44,8 @@ describe("config store definitions", () => {
     expect(initialState.testUrl).toBe(DEFAULT_SUBBOOST_CONFIG.testUrl);
     expect(initialState.testInterval).toBe(DEFAULT_SUBBOOST_CONFIG.testInterval);
     expect(initialState.ruleProviderBaseUrl).toBe(DEFAULT_SUBBOOST_CONFIG.ruleProviderBaseUrl);
+    expect(initialState.nodeNameFilter).toEqual(DEFAULT_NODE_NAME_FILTER_CONFIG);
+    expect(initialState.nodeNameFilter).not.toBe(DEFAULT_NODE_NAME_FILTER_CONFIG);
     expect(initialState.generatedYaml).toBe("");
     expect(initialState.historyIndex).toBe(-1);
   });

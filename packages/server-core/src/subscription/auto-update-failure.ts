@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { safeParseJsonObject } from "@subboost/core/json";
+import { extractHttpStatus } from "@subboost/core/subscription/import-error";
 
 // Product-neutral failure policy shared by server adapters.
 export const AUTO_UPDATE_EXTERNAL_FAILURE_THRESHOLD = 3;
@@ -96,13 +97,6 @@ export function serializeAutoUpdateFailureSourceState(state: AutoUpdateFailureSo
   return Object.keys(state).length > 0 ? JSON.stringify(state) : null;
 }
 
-function extractHttpStatus(text: string): number | null {
-  const match = text.match(/\bHTTP\s+(\d{3})\b/i) ?? text.match(/\b(4\d{2}|5\d{2})\b/);
-  if (!match) return null;
-  const status = Number.parseInt(match[1], 10);
-  return Number.isFinite(status) ? status : null;
-}
-
 export function classifyStableExternalAutoUpdateFailure(
   source: AutoUpdateFailureSourceLike
 ): AutoUpdateFailureClassification {
@@ -115,10 +109,9 @@ export function classifyStableExternalAutoUpdateFailure(
 
   if (
     text.includes("当前解析任务较多") ||
-    text.includes("服务暂时不可用，请稍后再试") ||
-    text.includes("没有可用的代理服务器")
+    text.includes("服务暂时不可用，请稍后再试")
   ) {
-    return { isStableExternalFailure: false, reason: "项目侧队列或代理资源暂不可用" };
+    return { isStableExternalFailure: false, reason: "服务暂时不可用" };
   }
 
   if (

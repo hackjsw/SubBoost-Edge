@@ -14,6 +14,16 @@ describe("Mihomo ECH helpers", () => {
       enable: true,
       "query-server-name": "cloudflare-ech.com",
     });
+    expect(
+      buildMihomoEchOptsFromShareValue("cloudflare-ech.com+https://203.0.113.53/dns-query")
+    ).toEqual({
+      enable: true,
+      "query-server-name": "cloudflare-ech.com",
+    });
+    expect(buildMihomoEchOptsFromShareValue("ech.example.com+udp://203.0.113.53:53")).toEqual({
+      enable: true,
+      "query-server-name": "ech.example.com",
+    });
     expect(buildMihomoEchOptsFromShareValue("not base64!")).toEqual({ enable: true });
   });
 
@@ -26,5 +36,28 @@ describe("Mihomo ECH helpers", () => {
     expect(isMihomoEchQueryServerName("single-label")).toBe(false);
     expect(isMihomoEchQueryServerName(`bad_label.${"a".repeat(64)}.example.com`)).toBe(false);
     expect(isMihomoEchQueryServerName(`${"a".repeat(100_000)}.example.com`)).toBe(false);
+  });
+
+  it("rejects malformed compound values without promoting their prefix", () => {
+    const enableOnly = { enable: true };
+
+    expect(buildMihomoEchOptsFromShareValue("cloudflare-ech.com+not-a-uri")).toEqual(enableOnly);
+    expect(buildMihomoEchOptsFromShareValue("cloudflare-ech.com+https://")).toEqual(enableOnly);
+    expect(buildMihomoEchOptsFromShareValue("cloudflare-ech.com+https:///dns-query")).toEqual(enableOnly);
+    expect(buildMihomoEchOptsFromShareValue("cloudflare-ech.com+https://:")).toEqual(enableOnly);
+    expect(buildMihomoEchOptsFromShareValue("cloudflare-ech.com+https://@")).toEqual(enableOnly);
+    expect(buildMihomoEchOptsFromShareValue("cloudflare-ech.com+https://[bad")).toEqual(enableOnly);
+    expect(buildMihomoEchOptsFromShareValue("cloudflare-ech.com+https://203.0.113.53/dns query")).toEqual(
+      enableOnly
+    );
+    expect(buildMihomoEchOptsFromShareValue("single-label+https://203.0.113.53/dns-query")).toEqual(enableOnly);
+    expect(buildMihomoEchOptsFromShareValue("203.0.113.53+https://203.0.113.53/dns-query")).toEqual(enableOnly);
+    expect(buildMihomoEchOptsFromShareValue("bad_name.example.com+https://203.0.113.53/dns-query")).toEqual(
+      enableOnly
+    );
+    expect(buildMihomoEchOptsFromShareValue("dGVzdA")).toEqual(enableOnly);
+    expect(
+      buildMihomoEchOptsFromShareValue(`cloudflare-ech.com+${"a".repeat(100_000)}`)
+    ).toEqual(enableOnly);
   });
 });

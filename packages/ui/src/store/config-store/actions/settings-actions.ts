@@ -1,4 +1,5 @@
 import type { ConfigActions } from "../definitions";
+import { parseNodeNameFilterConfig } from "@subboost/core/subscription/node-name-filter";
 import type { GetState, SetAndGenerateConfig, SetState } from "../store-types";
 
 type SettingsActions = Pick<
@@ -9,6 +10,7 @@ type SettingsActions = Pick<
   | "setTestUrl"
   | "setTestInterval"
   | "setRuleProviderBaseUrl"
+  | "setNodeNameFilter"
   | "setProxyGroupAdvancedModeEnabled"
   | "setCnIpNoResolve"
   | "setExperimentalCnUseCnRuleSet"
@@ -42,6 +44,12 @@ export function createSettingsActions(
 
     setRuleProviderBaseUrl: (url: string) => {
       setAndGenerateConfig(() => ({ ruleProviderBaseUrl: url }));
+    },
+
+    setNodeNameFilter: (config) => {
+      setAndGenerateConfig(() => ({
+        nodeNameFilter: parseNodeNameFilterConfig(config),
+      }));
     },
 
     setProxyGroupAdvancedModeEnabled: (value: boolean) => {

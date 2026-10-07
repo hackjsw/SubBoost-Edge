@@ -49,6 +49,41 @@ function uniqueMemberRefs(members: readonly ProxyGroupMemberRef[]): ProxyGroupMe
   });
 }
 
+export function mergeVisibleMemberOrder(
+  currentOrder: readonly ProxyGroupMemberRef[] | undefined,
+  nextVisibleOrder: readonly ProxyGroupMemberRef[],
+  preservedKeys: ReadonlySet<string>,
+): ProxyGroupMemberRef[] {
+  const visible = uniqueMemberRefs(nextVisibleOrder).filter(
+    (member) => !preservedKeys.has(getProxyGroupMemberKey(member)),
+  );
+  const merged: ProxyGroupMemberRef[] = [];
+  const used = new Set<string>();
+  let visibleIndex = 0;
+
+  const append = (member: ProxyGroupMemberRef) => {
+    const key = getProxyGroupMemberKey(member);
+    if (used.has(key)) return;
+    used.add(key);
+    merged.push(member);
+  };
+
+  for (const member of normalizeList(currentOrder)) {
+    if (preservedKeys.has(getProxyGroupMemberKey(member))) {
+      append(member);
+      continue;
+    }
+    const replacement = visible[visibleIndex];
+    visibleIndex += 1;
+    if (replacement) append(replacement);
+  }
+
+  for (; visibleIndex < visible.length; visibleIndex += 1) {
+    append(visible[visibleIndex]);
+  }
+  return merged;
+}
+
 export function insertMembersAfterProtected(
   currentMembers: readonly ResolvedMember[],
   members: readonly ProxyGroupMemberRef[],

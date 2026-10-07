@@ -7,6 +7,10 @@ import { normalizePersistedRuleOrder } from "@subboost/core/generator/rules";
 import { normalizeProxyGroupAdvancedConfig } from "@subboost/core/proxy-group-advanced";
 import type { ConfigActions } from "../definitions";
 import type { GetState, SetAndGenerateConfig, SetState } from "../store-types";
+import {
+  compactBuiltinRuleEdits,
+  ruleTargetMatchesContainer,
+} from "./proxy-group-rule-set-helpers";
 
 type CustomActions = Pick<
   ConfigActions,
@@ -160,19 +164,45 @@ export function createCustomActions(
     removeCustomProxyGroup: (id: string) => {
       setAndGenerateConfig((state) => {
         const removedGroup = state.customProxyGroups.find((g) => g.id === id);
+        if (!removedGroup) return state;
         const nextCustomProxyGroups = state.customProxyGroups.filter(
           (g) => g.id !== id,
         );
         const removedGroupName = removedGroup?.name?.trim() || "";
-        const nextCustomRuleSets = removedGroupName
-          ? state.customRuleSets.filter((ruleSet) => ruleSet.target !== removedGroupName)
-          : state.customRuleSets;
+        const removedTarget = { kind: "custom" as const, id };
+        const nextCustomRules = state.customRules.filter(
+          (rule) => !ruleTargetMatchesContainer(rule.target, removedTarget, removedGroupName),
+        );
+        const nextCustomRuleSets = state.customRuleSets.filter(
+          (ruleSet) => !ruleTargetMatchesContainer(ruleSet.target, removedTarget, removedGroupName),
+        );
+        const nextBuiltinRuleEdits = compactBuiltinRuleEdits(
+          Object.fromEntries(
+            Object.entries(state.builtinRuleEdits || {}).map(([key, edit]) => {
+              if (!ruleTargetMatchesContainer(edit?.target, removedTarget, removedGroupName)) return [key, edit];
+              const { target: _removedTarget, ...rest } = edit;
+              return [key, rest];
+            }),
+          ),
+        );
+        // 分组删除后监听绑定失去目标且无 UI 入口可清理，必须连带移除
+        const nextGroupListeners = state.groupListeners.filter(
+          (binding) => !(binding && binding.target && binding.target.kind === "custom" && binding.target.id === id),
+        );
         return {
           customProxyGroups: nextCustomProxyGroups,
+          customRules: nextCustomRules,
           customRuleSets: nextCustomRuleSets,
+          builtinRuleEdits: nextBuiltinRuleEdits,
+          ...(nextGroupListeners.length !== state.groupListeners.length
+            ? { groupListeners: nextGroupListeners }
+            : {}),
           ruleOrder: normalizeRuleOrderForState({
             ...state,
+            customProxyGroups: nextCustomProxyGroups,
+            customRules: nextCustomRules,
             customRuleSets: nextCustomRuleSets,
+            builtinRuleEdits: nextBuiltinRuleEdits,
           }),
         };
       });
@@ -214,6 +244,7 @@ export function createCustomActions(
           customProxyGroups: nextCustomProxyGroups,
           ruleOrder: normalizeRuleOrderForState({
             ...state,
+            customProxyGroups: nextCustomProxyGroups,
             customRules: nextCustomRules,
             customRuleSets: nextCustomRuleSets,
             builtinRuleEdits: nextBuiltinRuleEdits,

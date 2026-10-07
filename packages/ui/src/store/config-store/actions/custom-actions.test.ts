@@ -76,9 +76,19 @@ describe("custom config-store actions", () => {
 
   it("adds, removes, and renames custom proxy groups while updating matching rules", () => {
     const { actions, getState } = createHarness({
-      customRules: [rule({ id: "r1", target: "Old Group" }), rule({ id: "r2", target: "DIRECT" })],
-      customRuleSets: [{ id: "cg-rule-1", name: "CG Rule", behavior: "domain", path: "geosite/example.mrs", target: "Old Group" }],
-      builtinRuleEdits: { "module:ai:openai": { target: "Old Group" } },
+      customRules: [
+        rule({ id: "r1", target: "Old Group" }),
+        rule({ id: "r2", target: "DIRECT" }),
+        rule({ id: "r3", target: { kind: "custom", id: "custom-group-1767225600000" } }),
+      ],
+      customRuleSets: [
+        { id: "cg-rule-1", name: "CG Rule", behavior: "domain", path: "geosite/example.mrs", target: "Old Group" },
+        { id: "cg-rule-2", name: "CG Rule 2", behavior: "domain", path: "geosite/example-2.mrs", target: { kind: "custom", id: "custom-group-1767225600000" } },
+      ],
+      builtinRuleEdits: {
+        "module:ai:openai": { target: "Old Group" },
+        "module:ai:anthropic": { target: { kind: "custom", id: "custom-group-1767225600000" }, enabled: false },
+      },
     });
 
     actions.addCustomProxyGroup({ name: "Old Group", emoji: "🧩", groupType: "select" });
@@ -100,10 +110,33 @@ describe("custom config-store actions", () => {
     expect(getState().customRules[1].target).toBe("DIRECT");
     expect(getState().customRuleSets[0].target).toBe("New Group");
     expect(getState().builtinRuleEdits["module:ai:openai"].target).toBe("New Group");
+    expect(getState().customRules[2].target).toEqual({ kind: "custom", id: groupId });
 
     actions.removeCustomProxyGroup(groupId);
     expect(getState().customProxyGroups).toEqual([]);
     expect(getState().customRuleSets).toEqual([]);
+    expect(getState().customRules).toEqual([expect.objectContaining({ id: "r2", target: "DIRECT" })]);
+    expect(getState().builtinRuleEdits["module:ai:openai"]).toBeUndefined();
+    expect(getState().builtinRuleEdits["module:ai:anthropic"]).toEqual({ enabled: false });
+  });
+
+  it("removes the group listener binding when deleting a custom proxy group", () => {
+    const { actions, getState } = createHarness({
+      customProxyGroups: [
+        { id: "custom-1", name: "Streaming", emoji: "🧩", groupType: "select" },
+      ],
+      groupListeners: [
+        { id: "gl-1", target: { kind: "custom", id: "custom-1" }, port: 7891 },
+        { id: "gl-2", target: { kind: "module", id: "auto" }, port: 7892 },
+      ],
+    });
+
+    actions.removeCustomProxyGroup("custom-1");
+
+    expect(getState().customProxyGroups).toEqual([]);
+    expect(getState().groupListeners).toEqual([
+      { id: "gl-2", target: { kind: "module", id: "auto" }, port: 7892 },
+    ]);
   });
 
   it("normalizes advanced custom proxy group fields and keeps blank-name removals narrow", () => {
@@ -182,5 +215,26 @@ describe("custom config-store actions", () => {
       expect.objectContaining({ name: "Stable Group", emoji: "S" })
     );
     expect(getState().customRules[0].target).toBe("Stable Group");
+  });
+
+  it("normalizes rule order with the updated custom proxy group state", () => {
+    const { actions, getState } = createHarness({
+      customProxyGroups: [
+        { id: "custom-1", name: "Custom", emoji: "", groupType: "select" },
+      ],
+      customRules: [
+        rule({
+          id: "disabled-target",
+          value: "disabled.example.com",
+          target: { kind: "custom", id: "custom-1" },
+        }),
+        rule({ id: "active-target", value: "active.example.com", target: "DIRECT" }),
+      ],
+      ruleOrder: ["custom-rule:disabled-target", "custom-rule:active-target"],
+    });
+
+    actions.updateCustomProxyGroup("custom-1", { enabled: false });
+
+    expect(getState().ruleOrder).toEqual(["custom-rule:active-target"]);
   });
 });

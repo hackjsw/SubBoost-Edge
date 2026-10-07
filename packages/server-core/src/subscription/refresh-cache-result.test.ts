@@ -79,12 +79,88 @@ describe("prepareRefreshCacheResult", () => {
     expect(providerOnly.nodeCount).toBe(0);
     expect(providerOnly.generatedYaml).toContain("proxy-providers:");
     expect(providerOnly.cacheEntry.nodes).toEqual([]);
+
+    expect(
+      prepareRefreshCacheResult({
+        config: {},
+        snapshot: snapshot({ nodes: [] }),
+        maxNodesPerSubscription: 10,
+        proxyProviders: {},
+      })
+    ).toMatchObject({
+      ok: false,
+      reason: "empty_result",
+    });
+  });
+
+  it("keeps the raw cache snapshot but rejects refreshes with no effective nodes", () => {
+    const filtered = prepareRefreshCacheResult({
+      config: {
+        nodeNameFilter: {
+          enabled: true,
+          excludeRegexes: ["^node-a$"],
+        },
+      },
+      snapshot: snapshot({ nodes: [node] }),
+      maxNodesPerSubscription: 10,
+    });
+
+    expect(filtered).toMatchObject({
+      ok: false,
+      reason: "empty_result",
+      nodeCount: 1,
+    });
+  });
+
+  it("allows provider output when all raw nodes are excluded and caches the raw snapshot", () => {
+    const filtered = prepareRefreshCacheResult({
+      config: {
+        nodeNameFilter: {
+          enabled: true,
+          excludeRegexes: ["^node-a$"],
+        },
+      },
+      snapshot: snapshot({ nodes: [node] }),
+      maxNodesPerSubscription: 10,
+      proxyProviders: {
+        remote: {
+          type: "http",
+          url: "https://provider.example.com/sub.yaml",
+          path: "./remote.yaml",
+        },
+      },
+    });
+
+    expect(filtered.ok).toBe(true);
+    if (!filtered.ok) return;
+    expect(filtered.nodeCount).toBe(1);
+    expect(filtered.cacheEntry.nodes).toEqual([node]);
+    expect(filtered.generatedYaml).toContain("proxy-providers:");
+    expect(filtered.generatedYaml).not.toContain("node-a.example.com");
   });
 
   it("enforces node quota before generating YAML", () => {
     expect(
       prepareRefreshCacheResult({
         config: {},
+        snapshot: snapshot({ nodes: [node, { ...node, name: "node-b" }] }),
+        maxNodesPerSubscription: 1,
+      })
+    ).toMatchObject({
+      ok: false,
+      reason: "node_quota_exceeded",
+      nodeCount: 2,
+      maxNodesPerSubscription: 1,
+    });
+
+    expect(
+      prepareRefreshCacheResult({
+        config: {
+          nodeNameFilter: {
+            enabled: true,
+            excludeRegexes: [".*"],
+          },
+        },
         snapshot: snapshot({ nodes: [node, { ...node, name: "node-b" }] }),
         maxNodesPerSubscription: 1,
       })
@@ -124,5 +200,120 @@ describe("prepareRefreshCacheResult", () => {
         total: 3,
       },
     });
+  });
+
+  it("generates and persists from reconciled node relationships", () => {
+    const renamedNode = { ...node, name: "New Node" };
+    // A separate relay keeps the chain acyclic (a node cannot dial through itself).
+    const relayNode: ParsedNode = { ...node, name: "Relay", server: "relay.example.com" };
+    const result = prepareRefreshCacheResult({
+      config: {
+        listenerPorts: { "Old Node": 12000 },
+        dialerProxyGroups: [
+          {
+            id: "chain",
+            name: "Chain",
+            type: "select",
+            relayNodes: ["DIRECT", "Relay"],
+            targetNodes: ["Old Node"],
+          },
+        ],
+        proxyGroupAdvanced: {
+          auto: { memberOrder: [{ kind: "node", name: "Old Node" }] },
+        },
+      },
+      snapshot: snapshot({
+        nodes: [renamedNode, relayNode],
+        savedSources: [{ id: "source", type: "url", content: "https://example.com/sub" }],
+        renameMap: new Map([["Old Node", "New Node"]]),
+      }),
+      maxNodesPerSubscription: 10,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.refreshedConfig).toMatchObject({
+      listenerPorts: { "New Node": 12000 },
+      dialerProxyGroups: [
+        expect.objectContaining({ relayNodes: ["DIRECT", "Relay"], targetNodes: ["New Node"] }),
+      ],
+      proxyGroupAdvanced: {
+        auto: { memberOrder: [{ kind: "node", name: "New Node" }] },
+      },
+      sources: [{ id: "source", type: "url", content: "https://example.com/sub" }],
+    });
+    expect(result.generatedYaml).toContain('port: 12000, proxy: "New Node"');
+    expect(result.generatedYaml).toContain("dialer-proxy: Chain");
+  });
+
+  it("preserves a migrated custom proxy group relay through refresh and YAML generation", () => {
+    const migratedCustomGroupName = "🧩 筛选组  美国";
+    const result = prepareRefreshCacheResult({
+      config: {
+        enabledGroups: ["select", "auto", "final"],
+        customProxyGroups: [
+          {
+            id: "legacy-us",
+            name: migratedCustomGroupName,
+            emoji: "🧩",
+            enabled: true,
+            groupType: "select",
+            // Keep the landing node out of its own relay group to avoid a dialer loop.
+            advanced: { excludeRegex: "^node-a$" },
+          },
+        ],
+        dialerProxyGroups: [
+          {
+            id: "group-relay",
+            name: "Group Relay",
+            type: "select",
+            relayNodes: [migratedCustomGroupName],
+            targetNodes: ["node-a"],
+          },
+        ],
+      },
+      snapshot: snapshot({ nodes: [node, { ...node, name: "node-b", server: "node-b.example.com" }] }),
+      maxNodesPerSubscription: 10,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.refreshedConfig).toMatchObject({
+      dialerProxyGroups: [
+        expect.objectContaining({ relayNodes: [migratedCustomGroupName], targetNodes: ["node-a"] }),
+      ],
+    });
+    expect(result.generatedYaml).toContain('dialer-proxy: "Group Relay"');
+    expect(result.generatedYaml).toContain(migratedCustomGroupName);
+  });
+
+  it.each([[], "auto"])(
+    "keeps legacy template fallback for empty or malformed enabledGroups=%j",
+    (enabledGroups) => {
+      const result = prepareRefreshCacheResult({
+        config: { enabledGroups },
+        snapshot: snapshot(),
+        maxNodesPerSubscription: 10,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.generatedYaml).toContain("⚡ 自动选择");
+    }
+  );
+
+  it("rejects invalid persisted filters before publishing refresh output", () => {
+    expect(() =>
+      prepareRefreshCacheResult({
+        config: {
+          nodeNameFilter: {
+            enabled: true,
+            excludeRegexes: ["(a+)+$"],
+          },
+        },
+        snapshot: snapshot(),
+        maxNodesPerSubscription: 10,
+      })
+    ).toThrow("节点名称过滤配置无效");
   });
 });

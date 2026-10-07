@@ -8,6 +8,9 @@ export const RULE_ADD_ROW_FRAME_CLASS = "px-[7px]";
 
 export const RULE_HEADER_ROW_CLASS = "flex min-h-5 items-center gap-2 pr-[7px]";
 
+export const RULE_TYPE_BADGE_CLASS =
+  "rounded border border-indigo-400/20 bg-indigo-500/10 px-1.5 py-0.5 font-medium text-indigo-200";
+
 export const RULE_EDIT_PRIMARY_FIELD_CLASS =
   "min-w-[min(9rem,100%)] flex-[999_1_11rem]";
 

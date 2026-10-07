@@ -1,5 +1,6 @@
 import type { ConfigState } from "./definitions";
 import { safeParseJsonObject } from "@subboost/core/json";
+import { normalizeNodeNameFilterConfig } from "@subboost/core/subscription/node-name-filter";
 import { getConfigDraftStorageNameForUser } from "./draft-storage";
 
 export {
@@ -7,9 +8,38 @@ export {
   getConfigDraftStorageNameForUser,
 } from "./draft-storage";
 
-export const CONFIG_DRAFT_STORAGE_VERSION = 10;
+export const CONFIG_DRAFT_STORAGE_VERSION = 11;
 
 type ConfigDraftStorage = Pick<Storage, "getItem" | "setItem">;
+
+export function createSafeConfigDraftStorage(
+  getStorage: () => Pick<Storage, "getItem" | "setItem" | "removeItem"> | null = () =>
+    typeof window === "undefined" ? null : window.localStorage
+) {
+  return {
+    getItem(key: string): string | null {
+      try {
+        return getStorage()?.getItem(key) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    setItem(key: string, value: string): void {
+      try {
+        getStorage()?.setItem(key, value);
+      } catch {
+        // Keep the current in-memory draft editable when storage is unavailable.
+      }
+    },
+    removeItem(key: string): void {
+      try {
+        getStorage()?.removeItem(key);
+      } catch {
+        // Storage availability must not block clearing the persisted draft.
+      }
+    },
+  };
+}
 
 type PersistedEnvelope = {
   state?: unknown;
@@ -58,6 +88,7 @@ export function normalizePersistedConfigState(
     ...(typeof state.proxyGroupAdvancedModeEnabled === "boolean"
       ? { proxyGroupAdvancedModeEnabled: state.proxyGroupAdvancedModeEnabled }
       : {}),
+    nodeNameFilter: normalizeNodeNameFilterConfig(state.nodeNameFilter),
     cnIpNoResolve: typeof state.cnIpNoResolve === "boolean" ? state.cnIpNoResolve : true,
     experimentalCnUseCnRuleSet:
       typeof state.experimentalCnUseCnRuleSet === "boolean" ? state.experimentalCnUseCnRuleSet : true,
@@ -76,6 +107,7 @@ export function partializeConfigState(state: ConfigState): Partial<ConfigState> 
     testInterval: state.testInterval,
     ruleProviderBaseUrl: state.ruleProviderBaseUrl,
     proxyGroupAdvancedModeEnabled: state.proxyGroupAdvancedModeEnabled,
+    nodeNameFilter: normalizeNodeNameFilterConfig(state.nodeNameFilter),
     cnIpNoResolve: state.cnIpNoResolve,
     experimentalCnUseCnRuleSet: state.experimentalCnUseCnRuleSet,
   };

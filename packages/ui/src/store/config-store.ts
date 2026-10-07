@@ -14,10 +14,12 @@ import { createCustomActions } from "./config-store/actions/custom-actions";
 import { createProxyGroupActions } from "./config-store/actions/proxy-group-actions";
 import { createDialerActions } from "./config-store/actions/dialer-actions";
 import { createSettingsActions } from "./config-store/actions/settings-actions";
+import { createGroupListenerActions } from "./config-store/actions/group-listener-actions";
 import { createHistoryActions } from "./config-store/actions/history-actions";
 import {
   CONFIG_DRAFT_GUEST_STORAGE_NAME,
   CONFIG_DRAFT_STORAGE_VERSION,
+  createSafeConfigDraftStorage,
   normalizePersistedConfigState,
   partializeConfigState,
   prepareConfigDraftScope,
@@ -42,6 +44,7 @@ export type {
 export type { CustomProxyGroup } from "@subboost/core/types/config";
 
 let activeConfigDraftStorageName = CONFIG_DRAFT_GUEST_STORAGE_NAME;
+const configDraftStorage = createSafeConfigDraftStorage();
 
 export const useConfigStore = create<ConfigState & ConfigActions>()(
   persist<ConfigState & ConfigActions, [], [], Partial<ConfigState>>(
@@ -73,13 +76,14 @@ export const useConfigStore = create<ConfigState & ConfigActions>()(
         ...createProxyGroupActions(set, get, setAndGenerateConfig),
         ...createDialerActions(set, get, setAndGenerateConfig),
         ...createSettingsActions(set, get, setAndGenerateConfig),
+        ...createGroupListenerActions(set, get, setAndGenerateConfig),
         ...createHistoryActions(set, get),
       };
     },
     {
       name: CONFIG_DRAFT_GUEST_STORAGE_NAME,
       version: CONFIG_DRAFT_STORAGE_VERSION,
-      storage: createJSONStorage<Partial<ConfigState>>(() => localStorage),
+      storage: createJSONStorage<Partial<ConfigState>>(() => configDraftStorage),
       migrate: (persistedState, version) =>
         normalizePersistedConfigState(persistedState, {
           discardDraft: version !== CONFIG_DRAFT_STORAGE_VERSION,
@@ -90,13 +94,13 @@ export const useConfigStore = create<ConfigState & ConfigActions>()(
 );
 
 export function setConfigDraftUserScope(userId: string | null | undefined) {
-  if (typeof window === "undefined" || !window.localStorage) return;
+  if (typeof window === "undefined") return;
 
-  const { storageName, state } = prepareConfigDraftScope(window.localStorage, userId);
+  const { storageName, state } = prepareConfigDraftScope(configDraftStorage, userId);
   if (activeConfigDraftStorageName === storageName) return;
 
   activeConfigDraftStorageName = storageName;
   useConfigStore.persist.setOptions({ name: storageName });
-  useConfigStore.setState({ ...initialState, ...state });
+  useConfigStore.setState((current) => ({ ...initialState, ...state, draftRevision: current.draftRevision + 1 }));
   useConfigStore.getState().generateConfig();
 }

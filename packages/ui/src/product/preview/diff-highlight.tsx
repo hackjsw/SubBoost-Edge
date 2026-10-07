@@ -1,212 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { Button } from "@subboost/ui/components/ui/button";
 import { cn } from "@subboost/ui/lib/utils";
-
-interface DiffLine {
-  type: "add" | "remove" | "unchanged";
-  content: string;
-  lineNumber: number;
-}
-
-interface DiffHighlightProps {
-  oldText: string;
-  newText: string;
-  className?: string;
-}
-
-/**
- * 变更高亮组件
- * 对比两个文本并高亮显示差异
- */
-export function DiffHighlight({ oldText, newText, className }: DiffHighlightProps) {
-  const diffLines = React.useMemo(() => {
-    return computeDiff(oldText, newText);
-  }, [oldText, newText]);
-
-  const stats = React.useMemo(() => {
-    const added = diffLines.filter(l => l.type === "add").length;
-    const removed = diffLines.filter(l => l.type === "remove").length;
-    return { added, removed };
-  }, [diffLines]);
-
-  if (!oldText && !newText) {
-    return null;
-  }
-
-  return (
-    <div className={cn("rounded-lg overflow-hidden", className)}>
-      {/* 统计信息 */}
-      {(stats.added > 0 || stats.removed > 0) && (
-        <div className="flex items-center gap-3 px-3 py-2 bg-white/5 border-b border-white/10 text-xs">
-          <span className="text-white/60">变更统计:</span>
-          {stats.added > 0 && (
-            <span className="text-green-400">+{stats.added} 行</span>
-          )}
-          {stats.removed > 0 && (
-            <span className="text-red-400">-{stats.removed} 行</span>
-          )}
-        </div>
-      )}
-
-      {/* 差异内容 */}
-      <div className="overflow-auto max-h-[500px]">
-        <pre className="text-xs font-mono">
-          {diffLines.map((line, idx) => (
-            <div
-              key={idx}
-              className={cn(
-                "flex",
-                line.type === "add" && "bg-green-500/10",
-                line.type === "remove" && "bg-red-500/10"
-              )}
-            >
-              {/* 行号 */}
-              <span className="w-10 px-2 py-0.5 text-right text-white/50 select-none border-r border-white/10 flex-shrink-0">
-                {line.lineNumber}
-              </span>
-              
-              {/* 差异标记 */}
-              <span className={cn(
-                "w-6 px-1.5 py-0.5 text-center select-none flex-shrink-0",
-                line.type === "add" && "text-green-400",
-                line.type === "remove" && "text-red-400",
-                line.type === "unchanged" && "text-white/50"
-              )}>
-                {line.type === "add" ? "+" : line.type === "remove" ? "-" : " "}
-              </span>
-              
-              {/* 内容 */}
-              <span className={cn(
-                "flex-1 px-2 py-0.5 whitespace-pre",
-                line.type === "add" && "text-green-300",
-                line.type === "remove" && "text-red-300",
-                line.type === "unchanged" && "text-dark-300"
-              )}>
-                {line.content || " "}
-              </span>
-            </div>
-          ))}
-        </pre>
-      </div>
-    </div>
-  );
-}
-
-/**
- * 简单的行级差异算法
- */
-function computeDiff(oldText: string, newText: string): DiffLine[] {
-  const oldLines = oldText.split("\n");
-  const newLines = newText.split("\n");
-  const result: DiffLine[] = [];
-  
-  // 使用 LCS (最长公共子序列) 简化版本
-  const lcs = computeLCS(oldLines, newLines);
-  
-  let oldIdx = 0;
-  let newIdx = 0;
-  let lineNumber = 1;
-  
-  for (const match of lcs) {
-    // 添加删除的行
-    while (oldIdx < match.oldIndex) {
-      result.push({
-        type: "remove",
-        content: oldLines[oldIdx],
-        lineNumber: lineNumber++,
-      });
-      oldIdx++;
-    }
-    
-    // 添加新增的行
-    while (newIdx < match.newIndex) {
-      result.push({
-        type: "add",
-        content: newLines[newIdx],
-        lineNumber: lineNumber++,
-      });
-      newIdx++;
-    }
-    
-    // 添加未变更的行
-    result.push({
-      type: "unchanged",
-      content: newLines[newIdx],
-      lineNumber: lineNumber++,
-    });
-    
-    oldIdx++;
-    newIdx++;
-  }
-  
-  // 添加剩余的删除行
-  while (oldIdx < oldLines.length) {
-    result.push({
-      type: "remove",
-      content: oldLines[oldIdx],
-      lineNumber: lineNumber++,
-    });
-    oldIdx++;
-  }
-  
-  // 添加剩余的新增行
-  while (newIdx < newLines.length) {
-    result.push({
-      type: "add",
-      content: newLines[newIdx],
-      lineNumber: lineNumber++,
-    });
-    newIdx++;
-  }
-  
-  return result;
-}
-
-interface LCSMatch {
-  oldIndex: number;
-  newIndex: number;
-}
-
-/**
- * 计算最长公共子序列
- */
-function computeLCS(oldLines: string[], newLines: string[]): LCSMatch[] {
-  const m = oldLines.length;
-  const n = newLines.length;
-  
-  // 构建 LCS 表
-  const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-  
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (oldLines[i - 1] === newLines[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
-    }
-  }
-  
-  // 回溯找出匹配
-  const matches: LCSMatch[] = [];
-  let i = m;
-  let j = n;
-  
-  while (i > 0 && j > 0) {
-    if (oldLines[i - 1] === newLines[j - 1]) {
-      matches.unshift({ oldIndex: i - 1, newIndex: j - 1 });
-      i--;
-      j--;
-    } else if (dp[i - 1][j] > dp[i][j - 1]) {
-      i--;
-    } else {
-      j--;
-    }
-  }
-  
-  return matches;
-}
 
 /**
  * YAML 语法高亮（简单版本）
@@ -293,21 +89,25 @@ export function YamlHighlight({ content, className }: { content: string; classNa
                 `（${renderStats.lineCount} 行 / ${renderStats.charCount} 字符）`}
             </span>
             {forceHighlight ? (
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => setForceHighlight(false)}
-                className="rounded border border-amber-300/40 px-2 py-0.5 text-[10px] text-amber-100 transition-colors hover:bg-amber-300/10"
+                className="h-auto rounded border-amber-300/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-300/10"
               >
                 恢复纯文本
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => setForceHighlight(true)}
-                className="rounded border border-amber-300/40 px-2 py-0.5 text-[10px] text-amber-100 transition-colors hover:bg-amber-300/10"
+                className="h-auto rounded border-amber-300/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-300/10"
               >
                 强制语法高亮
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -318,8 +118,8 @@ export function YamlHighlight({ content, className }: { content: string; classNa
       ) : (
         <pre className="text-xs font-mono">
           {highlightedLines.map(({ number, html }) => (
-            <div key={number} className="flex hover:bg-white/5">
-              <span className="w-10 px-2 py-0.5 text-right text-white/50 select-none border-r border-white/10 flex-shrink-0">
+            <div key={number} className="flex hover:bg-ink/5">
+              <span className="w-10 px-2 py-0.5 text-right text-fg-50 select-none border-r border-ink/10 flex-shrink-0">
                 {number}
               </span>
               <span
@@ -340,7 +140,7 @@ export function YamlHighlight({ content, className }: { content: string; classNa
 function highlightYamlLine(line: string): string {
   // 注释
   if (line.trim().startsWith("#")) {
-    return `<span class="text-white/50">${escapeHtml(line)}</span>`;
+    return `<span class="text-fg-50">${escapeHtml(line)}</span>`;
   }
 
   // 空行
@@ -362,7 +162,7 @@ function highlightYamlLine(line: string): string {
   if (keyMatch) {
     const [, indent, key, colon, value] = keyMatch;
     const highlightedValue = highlightYamlValue(value.trim());
-    return `${escapeHtml(indent)}<span class="text-cyan-400">${escapeHtml(key)}</span><span class="text-white">${colon}</span> ${highlightedValue}`;
+    return `${escapeHtml(indent)}<span class="text-cyan-400">${escapeHtml(key)}</span><span class="text-fg">${colon}</span> ${highlightedValue}`;
   }
 
   return escapeHtml(line);
@@ -473,10 +273,10 @@ function highlightInlineObject(obj: string): string {
       keyColor = "text-rose-400 font-medium";
     }
 
-    return `<span class="${keyColor}">${escapeHtml(key)}</span><span class="text-white/60">:</span> ${highlightYamlValue(val)}`;
+    return `<span class="${keyColor}">${escapeHtml(key)}</span><span class="text-fg-60">:</span> ${highlightYamlValue(val)}`;
   });
 
-  return `<span class="text-white/40">{</span>${highlighted.join(`<span class="text-white/40">,</span> `)}<span class="text-white/40">}</span>`;
+  return `<span class="text-fg-40">{</span>${highlighted.join(`<span class="text-fg-40">,</span> `)}<span class="text-fg-40">}</span>`;
 }
 
 /**
@@ -517,7 +317,7 @@ function highlightInlineArray(arr: string): string {
   if (current.trim()) parts.push(current.trim());
 
   const highlighted = parts.map((part) => highlightYamlValue(part));
-  return `<span class="text-white/40">[</span>${highlighted.join(`<span class="text-white/40">,</span> `)}<span class="text-white/40">]</span>`;
+  return `<span class="text-fg-40">[</span>${highlighted.join(`<span class="text-fg-40">,</span> `)}<span class="text-fg-40">]</span>`;
 }
 
 /**

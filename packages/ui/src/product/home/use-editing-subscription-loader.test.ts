@@ -6,10 +6,12 @@ const mocks = vi.hoisted(() => {
   const bag: {
     effectCleanups: Array<() => void>;
     storeState: any;
+    editRef: { current: string | null };
     stateSetters: Array<ReturnType<typeof vi.fn>>;
   } = {
     effectCleanups: [],
     storeState: {},
+    editRef: { current: null },
     stateSetters: [],
   };
 
@@ -39,8 +41,10 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("react", () => ({
+vi.mock("react", async (importOriginal) => ({
+  ...await importOriginal<typeof import("react")>(),
   useState: mocks.useState,
+  useRef: () => mocks.bag.editRef,
   useEffect: mocks.useEffect,
 }));
 
@@ -116,6 +120,7 @@ function resetStoreState(overrides: Record<string, unknown> = {}) {
     proxyGroupAdvanced: {},
     proxyGroupOrder: [],
     ruleOrder: [],
+    nodeNameFilter: { enabled: false, excludeRegexes: [] },
     ...overrides,
   };
   return { reset, generateConfig };
@@ -129,6 +134,7 @@ describe("useEditingSubscriptionLoader", () => {
     vi.clearAllMocks();
     mocks.bag.effectCleanups = [];
     mocks.bag.stateSetters = [];
+    mocks.bag.editRef.current = null;
     resetStoreState();
     originalWindow = globalThis.window;
     Object.defineProperty(globalThis, "window", {
@@ -147,8 +153,8 @@ describe("useEditingSubscriptionLoader", () => {
     });
   });
 
-  it("does nothing when there is no editing subscription id", async () => {
-    const options = makeOptions({ editSubscriptionId: null });
+  it.each([null, "sub-1"])("waits for authentication and skips absent edit IDs (%s)", async (id) => {
+    const options = makeOptions({ editSubscriptionId: id, authChecked: false });
 
     const isLoading = useEditingSubscriptionLoader(options);
     await flushAsync();
@@ -170,6 +176,16 @@ describe("useEditingSubscriptionLoader", () => {
     expect(isLoading).toBe(true);
     expect(options.loadSubscription).not.toHaveBeenCalled();
     expect(mocks.useConfigStore.setState).not.toHaveBeenCalled();
+  });
+
+  it("clears draft and labels when navigating away from editing", () => {
+    mocks.bag.editRef.current = "sub-1";
+    const options = makeOptions({ editSubscriptionId: null });
+    useEditingSubscriptionLoader(options);
+    expect(mocks.bag.storeState.reset).toHaveBeenCalledOnce();
+    expect(options.setEditingSubscription).toHaveBeenCalledWith(null);
+    expect(options.setSubscriptionName).toHaveBeenCalledWith("");
+    expect(options.setSubscriptionUrl).toHaveBeenCalledWith("");
   });
 
   it("captures the draft and redirects to login on 401", async () => {
@@ -241,8 +257,11 @@ describe("useEditingSubscriptionLoader", () => {
               template: "full",
               enabledGroups: ["select", "auto", "ai", "youtube"],
               hiddenProxyGroups: ["youtube"],
-              customRules: [{ type: "DOMAIN", value: "example.com", target: "🤖 AI 服务" }],
-              customProxyGroups: [{ id: "custom-1", name: "Custom", emoji: "", groupType: "select" }],
+              customRules: [
+                { id: "disabled-target", type: "DOMAIN", value: "disabled.example.com", target: { kind: "custom", id: "custom-1" } },
+                { id: "active-target", type: "DOMAIN", value: "example.com", target: "DIRECT" },
+              ],
+              customProxyGroups: [{ id: "custom-1", name: "Custom", emoji: "", groupType: "select", enabled: false }],
               customRuleSets: [
                 {
                   id: "custom-ai",
@@ -256,6 +275,7 @@ describe("useEditingSubscriptionLoader", () => {
               moduleRuleEditWarningAccepted: true,
               dialerProxyGroups: [{ id: "dialer-1", name: "Relay", relayNodes: ["Remote"], targetNodes: [] }],
               proxyGroupNameOverrides: { ai: "Labs" },
+              ruleOrder: ["custom-rule:disabled-target", "custom-rule:active-target"],
               proxyGroupOrder: ["module:ai", "module:ai", ""],
               listenerPorts: { Remote: 41000, Deleted: 41001 },
               appliedTemplateId: "template-1",
@@ -266,6 +286,10 @@ describe("useEditingSubscriptionLoader", () => {
               cnIpNoResolve: false,
               experimentalCnUseCnRuleSet: true,
               smartNodeMatchingEnabled: false,
+              nodeNameFilter: {
+                enabled: true,
+                excludeRegexes: ["^Remote$"],
+              },
             },
           },
         })
@@ -298,8 +322,9 @@ describe("useEditingSubscriptionLoader", () => {
       enabledProxyGroups: ["select", "auto", "ai"],
       hiddenProxyGroups: ["youtube"],
       customProxyGroups: [
-        { id: "custom-1", name: "Custom", emoji: "", groupType: "select", advanced: {} },
+        { id: "custom-1", name: "Custom", emoji: "", groupType: "select", enabled: false, advanced: {} },
       ],
+      ruleOrder: ["custom-rule:active-target", "custom-rule-set:custom-ai"],
       proxyGroupAdvancedModeEnabled: true,
       customRuleSets: [
         {
@@ -316,6 +341,10 @@ describe("useEditingSubscriptionLoader", () => {
       proxyGroupOrder: ["module:ai"],
       listenerPorts: { Remote: 41000 },
       appliedTemplateId: "template-1",
+      nodeNameFilter: {
+        enabled: true,
+        excludeRegexes: ["^Remote$"],
+      },
       dnsYaml: "dns: {}",
       ruleProviderBaseUrl: "https://rules.example.com",
       testUrl: "https://test.example.com",
@@ -373,6 +402,10 @@ describe("useEditingSubscriptionLoader", () => {
         conversionProfileId: "native",
       })
     );
+    expect(mocks.bag.storeState.nodeNameFilter).toEqual({
+      enabled: false,
+      excludeRegexes: [],
+    });
   });
 
   it("hydrates single URL sources from the saved subscription info snapshot", async () => {
@@ -461,7 +494,7 @@ describe("useEditingSubscriptionLoader", () => {
     expect(restoredSources[1]).not.toHaveProperty("subscriptionUserInfo");
   });
 
-  it("preserves current non-url sources when subscription urls still match", async () => {
+  it("does not inherit another draft's non-url sources even when subscription urls match", async () => {
     const { reset, generateConfig } = resetStoreState({
       sources: [
         {
@@ -497,6 +530,14 @@ describe("useEditingSubscriptionLoader", () => {
             config: {
               deletedNodeNames: ["Gone"],
               listenerPorts: { Active: 41000, Gone: 41001, Bad: "x", OutOfRange: 70000 },
+              groupListeners: [
+                { id: "gl-1", target: { kind: "module", id: "auto" }, port: 7891 },
+                { id: "gl-2", target: { kind: "custom", id: "c1" }, port: 7892, enabled: false, allowLan: true },
+                // 同目标重复与非法条目在恢复时丢弃
+                { id: "gl-dup", target: { kind: "module", id: "auto" }, port: 7899 },
+                { id: "gl-bad", target: { kind: "node", id: "n1" }, port: 7893 },
+                { id: "gl-bad-port", target: { kind: "dialer", id: "d1" }, port: 70000 },
+              ],
             },
           },
         })
@@ -510,24 +551,21 @@ describe("useEditingSubscriptionLoader", () => {
     expect(generateConfig).toHaveBeenCalled();
     expect(options.setStoreSources).toHaveBeenCalledWith([
       expect.objectContaining({
-        id: "url-current",
+        id: "sub-url-1",
         type: "url",
         content: "https://one.example/sub",
         lastParsedContent: "https://one.example/sub",
-        tag: "A",
-        nameTemplate: "{tag}-{name}",
-        useProxyProviders: true,
-        userinfoUrl: "https://one.example/userinfo",
-        userinfoUserAgent: "Clash.Meta",
       }),
-      expect.objectContaining({ id: "yaml-current", type: "yaml", content: "proxies: []", lastParsedContent: "proxies: []" }),
-      expect.objectContaining({ id: "nodes-current", type: "nodes", content: "ss://node", lastParsedContent: "ss://node" }),
     ]);
     expect(mocks.bag.storeState.nodes).toEqual([
       expect.objectContaining({ name: "Active", _originName: "Active" }),
     ]);
     expect(mocks.bag.storeState.deletedNodes).toEqual([{ originName: "Gone", name: "Gone" }]);
     expect(mocks.bag.storeState.listenerPorts).toEqual({ Active: 41000 });
+    expect(mocks.bag.storeState.groupListeners).toEqual([
+      { id: "gl-1", target: { kind: "module", id: "auto" }, port: 7891 },
+      { id: "gl-2", target: { kind: "custom", id: "c1" }, port: 7892, enabled: false, allowLan: true },
+    ]);
     expect(options.setEditingSubscription).toHaveBeenCalledWith(
       expect.objectContaining({ autoUpdateInterval: 30, smartNodeMatchingEnabled: true })
     );
@@ -648,7 +686,7 @@ describe("useEditingSubscriptionLoader", () => {
     expect(mocks.toast).toHaveBeenCalledWith({ title: "服务异常", variant: "destructive" });
   });
 
-  it("skips final state updates after cleanup cancels the load", async () => {
+  it.each(["cleanup", "draft", "json"])("discards stale loads after %s changes", async (change) => {
     let resolveLoad: (value: Response) => void = () => undefined;
     const options = makeOptions({
       loadSubscription: vi.fn(
@@ -661,9 +699,10 @@ describe("useEditingSubscriptionLoader", () => {
 
     useEditingSubscriptionLoader(options);
     expect(mocks.bag.effectCleanups).toHaveLength(1);
-    mocks.bag.effectCleanups[0]();
+    if (change === "cleanup") mocks.bag.effectCleanups[0]();
+    else if (change === "draft") mocks.bag.storeState.draftRevision = 1;
     resolveLoad(
-      response(200, {
+      change === "json" ? { ...response(200, {}), json: async () => { mocks.bag.storeState.draftRevision = 1; return {}; } } as Response : response(200, {
         subscription: {
           id: "sub-1",
           token: "token-1",
@@ -676,7 +715,10 @@ describe("useEditingSubscriptionLoader", () => {
     await flushAsync();
 
     expect(options.setEditingSubscription).not.toHaveBeenCalled();
+    expect(mocks.useConfigStore.setState).not.toHaveBeenCalled();
+    expect(mocks.bag.storeState.reset).not.toHaveBeenCalled();
+    expect(options.setStoreSources).not.toHaveBeenCalled();
     expect(mocks.bag.stateSetters[0]).toHaveBeenCalledWith(true);
-    expect(mocks.bag.stateSetters[0]).not.toHaveBeenCalledWith(false);
+    if (change === "cleanup") expect(mocks.bag.stateSetters[0]).not.toHaveBeenCalledWith(false);
   });
 });

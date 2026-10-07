@@ -5,6 +5,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Check, Download, Eye, FileText, Layers, Link2, Loader2, Pencil, X } from "lucide-react";
 import type { SubscriptionFormat } from "@subboost/core/subscription/output-format";
 import { autoUpdateIntervalHoursToSeconds } from "@subboost/core/subscription/auto-update-interval";
+import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
 import { confirmDialog } from "@subboost/ui/components/ui/confirm-dialog";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { useConfigStore } from "@subboost/ui/store/config-store";
@@ -151,8 +152,13 @@ export function EdgeGeneratorLayout(layout: HomeLayoutProps) {
         toast({ title: "配置有错误，无法保存", description: state.generatedYamlError, variant: "destructive" });
         return;
       }
-      if (!state.nodes.length && !state.sources.some((source) => source.useProxyProviders)) {
+      const usesProviders = state.sources.some((source) => source.useProxyProviders);
+      if (!state.nodes.length && !usesProviders) {
         toast({ title: "还没有可用节点", description: "请先在左侧添加订阅来源。", variant: "warning" });
+        return;
+      }
+      if (!usesProviders && resolveNodeNameFilter(state.nodes, state.nodeNameFilter).effectiveCount === 0) {
+        toast({ title: "所有节点都被排除了", description: "请在“节点管理 → 自动处理”中调整规则。", variant: "warning" });
         return;
       }
       setSaveQueued(true);

@@ -27,6 +27,7 @@ import type {
   ClashConfig,
   CustomProxyGroup,
   CustomRuleSet,
+  GroupListenerBinding,
   ProxyGroup,
   ProxyGroupAdvancedConfig,
   TemplateType,
@@ -35,7 +36,9 @@ import type {
 import type { DialerProxyGroup } from "@subboost/core/types/template-config";
 import { collectDnsPolicyEntries, configToYaml } from "./yaml";
 import { isMihomoSupportedProxyNode, normalizeMihomoVlessForGeneration } from "../mihomo/proxy-sanitizer";
+import { getValidDialerRelayGroupNames } from "../subscription/dialer-relay-group-names";
 import { chooseFallbackPolicyTarget, withBuiltinPolicyTargets } from "./policy-targets";
+import { resolveGroupListenerEntries, type GroupListenerTargetResolution } from "./group-listeners";
 
 export interface GenerateOptions {
   nodes: ParsedNode[];
@@ -49,6 +52,7 @@ export interface GenerateOptions {
   builtinRuleEdits?: BuiltinRuleEdits;
   proxyGroupNameOverrides?: Record<string, string>;
   proxyGroupOrder?: string[];
+  groupListeners?: GroupListenerBinding[];
 }
 
 type BaseConfig = Record<string, unknown>;
@@ -285,18 +289,17 @@ export function generateClashConfig(options: GenerateOptions): ClashConfig {
 
   const nodeNameSet = new Set(uniqueNodes.map((n) => n.name));
   const activeCustomProxyGroups = customProxyGroups.filter((g) => g && g.enabled !== false && typeof g.name === "string" && g.name.trim());
-  const customGroupNameSet = new Set<string>(
-    activeCustomProxyGroups.filter((g) => g && typeof g.name === "string" && g.name.trim()).map((g) => g.name.trim())
-  );
-  const moduleGroupNameSet = new Set<string>(
-    PROXY_GROUP_MODULES.map((mod) => resolveProxyGroupModuleName(mod, proxyGroupNameOverrides?.[mod.id]))
-  );
+  const validRelayGroupNames = getValidDialerRelayGroupNames({
+    customProxyGroups,
+    enabledGroups: config.enabledGroups,
+    proxyGroupNameOverrides,
+  });
   const enabledDialerProxyGroups = dialerProxyGroups.filter((g) => g && g.enabled !== false && typeof g.name === "string" && g.name.trim());
   const sanitizedDialerProxyGroups = enabledDialerProxyGroups.length > 0
     ? sanitizeDialerProxyGroups(
         enabledDialerProxyGroups,
         nodeNameSet,
-        new Set([...moduleGroupNameSet, ...customGroupNameSet])
+        validRelayGroupNames
       )
     : [];
 
@@ -308,8 +311,7 @@ export function generateClashConfig(options: GenerateOptions): ClashConfig {
     "DIRECT",
     ...nodeNameSet,
     ...proxyProviderNames,
-    ...moduleGroupNameSet,
-    ...customGroupNameSet,
+    ...validRelayGroupNames,
     ...sanitizedDialerProxyGroups.map((g) => g.name.trim()).filter(Boolean),
   ]);
   const outputNodes = allNodes.map((node) => {
@@ -479,10 +481,78 @@ export function generateClashConfig(options: GenerateOptions): ClashConfig {
     availablePolicyTargets
   );
   const resolvedListeners = (() => {
-    if (!listeners) return baseTopLevelPatch.listeners;
-    if (baseTopLevelPatch.listeners === undefined) return listeners;
-    if (Array.isArray(baseTopLevelPatch.listeners)) return [...baseTopLevelPatch.listeners, ...listeners];
-    throw new BaseConfigYamlError("基础和 DNS 配置中的 listeners 必须是数组，才能与节点监听端口合并。");
+    const baseListeners = baseTopLevelPatch.listeners;
+    if (baseListeners !== undefined && !Array.isArray(baseListeners)) {
+      throw new BaseConfigYamlError("基础和 DNS 配置中的 listeners 必须是数组，才能与节点监听端口合并。");
+    }
+    const baseListenerArray = Array.isArray(baseListeners) ? (baseListeners as Array<Record<string, unknown>>) : [];
+
+    // 分组监听：按稳定 ID 解析目标策略组（module/custom/dialer），改名后依然有效
+    const groupListenerEntries = (() => {
+      const bindings = Array.isArray(options.groupListeners) ? options.groupListeners : [];
+      if (bindings.length === 0) return [];
+
+      const finalGroupNames = new Set(proxyGroups.map((g) => g.name));
+      const resolveTarget = (binding: GroupListenerBinding): GroupListenerTargetResolution => {
+        const target = binding?.target;
+        if (!target || typeof target !== "object" || typeof target.id !== "string") {
+          return { exists: false, active: false };
+        }
+        if (target.kind === "module") {
+          const mod = PROXY_GROUP_MODULES.find((m) => m.id === target.id);
+          if (!mod) return { exists: false, active: false };
+          const name = resolveProxyGroupModuleName(mod, proxyGroupNameOverrides?.[mod.id]);
+          return { exists: true, active: finalGroupNames.has(name), name };
+        }
+        if (target.kind === "custom") {
+          const group = customProxyGroups.find((g) => g && g.id === target.id);
+          if (!group) return { exists: false, active: false };
+          const name = typeof group.name === "string" ? group.name.trim() : "";
+          return { exists: true, active: group.enabled !== false && finalGroupNames.has(name), name };
+        }
+        if (target.kind === "dialer") {
+          const group = dialerProxyGroups.find((g) => g && g.id === target.id);
+          if (!group) return { exists: false, active: false };
+          const name = typeof group.name === "string" ? group.name.trim() : "";
+          return { exists: true, active: group.enabled !== false && finalGroupNames.has(name), name };
+        }
+        return { exists: false, active: false };
+      };
+
+      // 最终生效的 mixed-port：基础 YAML patch 里的值即最终写入配置的值
+      const patchMixedPort = baseTopLevelPatch["mixed-port"];
+      const effectiveMixedPort = typeof patchMixedPort === "number" ? patchMixedPort : undefined;
+
+      const collectPorts = (list: Array<Record<string, unknown>> | undefined) =>
+        (list ?? [])
+          .map((l) => (l && typeof l === "object" ? l.port : undefined))
+          .filter((p): p is number => typeof p === "number");
+      const collectNames = (list: Array<Record<string, unknown>> | undefined) =>
+        (list ?? [])
+          .map((l) => (l && typeof l === "object" && typeof l.name === "string" ? l.name : ""))
+          .filter(Boolean);
+
+      return resolveGroupListenerEntries({
+        bindings,
+        resolveTarget,
+        effectiveMixedPort,
+        nodeListenerPorts: listeners ? listeners.map((l) => l.port) : [],
+        baseListenerPorts: collectPorts(baseListenerArray),
+        usedNames: new Set([
+          ...(listeners ? listeners.map((l) => l.name) : []),
+          ...collectNames(baseListenerArray),
+        ]),
+      });
+    })();
+
+    const generatedListeners = [
+      ...(listeners ?? []),
+      ...groupListenerEntries,
+    ];
+
+    if (generatedListeners.length === 0) return baseListeners;
+    if (baseListeners === undefined) return generatedListeners;
+    return [...baseListenerArray, ...generatedListeners];
   })();
 
   const mergedProxyProviders = (() => {

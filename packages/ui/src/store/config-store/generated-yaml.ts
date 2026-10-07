@@ -1,5 +1,7 @@
 import { generateClashYaml } from "@subboost/core/generator";
 import { stripImportedNodeControlFieldsFromList } from "@subboost/core/subscription/imported-node-controls";
+import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
+import type { ParsedNode } from "@subboost/core/types/node";
 import type { ConfigState } from "./definitions";
 
 function buildProxyProvidersFromSources(
@@ -50,10 +52,11 @@ function formatGeneratedYamlError(error: unknown): string {
 
 function buildGenerateClashYamlOptions(
   state: ConfigState,
-  proxyProviders: Record<string, unknown> | undefined
+  proxyProviders: Record<string, unknown> | undefined,
+  effectiveNodes: ParsedNode[]
 ): GenerateClashYamlOptions {
   return {
-    nodes: stripImportedNodeControlFieldsFromList(state.nodes),
+    nodes: stripImportedNodeControlFieldsFromList(effectiveNodes),
     proxyProviders,
     template: state.template,
     userConfig: {
@@ -79,15 +82,19 @@ function buildGenerateClashYamlOptions(
     proxyGroupAdvanced: state.proxyGroupAdvanced,
     proxyGroupNameOverrides: state.proxyGroupNameOverrides,
     proxyGroupOrder: state.proxyGroupOrder,
+    groupListeners: state.groupListeners,
   };
 }
 
 export function computeGeneratedYamlResult(state: ConfigState): GeneratedYamlResult {
   const proxyProviders = buildProxyProvidersFromSources(state);
-  const hasPreviewContent = state.nodes.length > 0 || Boolean(proxyProviders);
 
   try {
-    const yaml = generateClashYaml(buildGenerateClashYamlOptions(state, proxyProviders));
+    const { effectiveNodes } = resolveNodeNameFilter(state.nodes, state.nodeNameFilter);
+    const hasPreviewContent = effectiveNodes.length > 0 || Boolean(proxyProviders);
+    const yaml = generateClashYaml(
+      buildGenerateClashYamlOptions(state, proxyProviders, effectiveNodes)
+    );
     return { yaml: hasPreviewContent ? yaml : "", error: null };
   } catch (error) {
     return { yaml: "", error: formatGeneratedYamlError(error) };

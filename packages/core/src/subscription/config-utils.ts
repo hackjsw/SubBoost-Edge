@@ -8,12 +8,14 @@ import {
   isProxyGroupGroupType,
   type CustomProxyGroup,
   type CustomRule,
+  type GroupListenerBinding,
   type ProxyGroupRuleTarget,
   type TemplateType,
   type UserConfig,
 } from "@subboost/core/types/config";
 import { stripImportedNodeControlFieldsFromList } from "@subboost/core/subscription/imported-node-controls";
 import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy-providers";
+import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
 import { ensureCustomRuleId } from "@subboost/core/rules/custom-rule-utils";
 import { DEFAULT_SUBBOOST_CONFIG } from "@subboost/core/config/defaults";
 import { normalizeRuleModelFromConfig } from "@subboost/core/rules/rule-model";
@@ -125,6 +127,45 @@ function normalizeListenerPorts(value: unknown): Record<string, number> | undefi
     out[name] = port;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function normalizeGroupListeners(value: unknown): GroupListenerBinding[] {
+  if (!Array.isArray(value)) return [];
+  const out: GroupListenerBinding[] = [];
+  const usedIds = new Set<string>();
+  const usedTargets = new Set<string>();
+  for (let index = 0; index < value.length; index += 1) {
+    const item = value[index];
+    if (!isRecord(item)) continue;
+
+    const rawTarget = item.target;
+    if (!isRecord(rawTarget)) continue;
+    const kind = rawTarget.kind;
+    if (kind !== "module" && kind !== "custom" && kind !== "dialer") continue;
+    const targetId = toTrimmedString(rawTarget.id);
+    if (!targetId) continue;
+
+    const port = normalizePort(item.port);
+    if (port === undefined) continue;
+
+    // 一组一端口：同一目标重复绑定只保留首条
+    const targetKey = `${kind}:${targetId}`;
+    if (usedTargets.has(targetKey)) continue;
+    usedTargets.add(targetKey);
+
+    let id = toTrimmedString(item.id) || `group_listener_${index + 1}`;
+    while (usedIds.has(id)) id = `${id}_${index + 1}`;
+    usedIds.add(id);
+
+    out.push({
+      id,
+      target: { kind, id: targetId },
+      port,
+      ...(item.enabled === false ? { enabled: false } : {}),
+      ...(item.allowLan === true ? { allowLan: true } : {}),
+    });
+  }
+  return out;
 }
 
 function normalizeEnabledList(value: unknown): string[] | undefined {
@@ -298,7 +339,9 @@ export function buildGenerateOptionsFromConfig(
 
   const dialerProxyGroups = normalizeDialerProxyGroups(config.dialerProxyGroups);
   const proxyGroupOrder = normalizeProxyGroupOrder(config.proxyGroupOrder);
-  const sanitizedNodes = stripImportedNodeControlFieldsFromList(opts.nodes);
+  const effectiveNodes = resolveNodeNameFilter(opts.nodes, config.nodeNameFilter).effectiveNodes;
+  const groupListeners = normalizeGroupListeners(config.groupListeners);
+  const sanitizedNodes = stripImportedNodeControlFieldsFromList(effectiveNodes);
   const proxyGroupAdvanced = isRecord(config.proxyGroupAdvanced)
     ? Object.fromEntries(
         Object.entries(config.proxyGroupAdvanced)
@@ -319,5 +362,6 @@ export function buildGenerateOptionsFromConfig(
     ...(Object.keys(builtinRuleEdits).length > 0 ? { builtinRuleEdits } : {}),
     ...(proxyGroupNameOverrides ? { proxyGroupNameOverrides } : {}),
     ...(proxyGroupOrder ? { proxyGroupOrder } : {}),
+    ...(groupListeners.length > 0 ? { groupListeners } : {}),
   };
 }

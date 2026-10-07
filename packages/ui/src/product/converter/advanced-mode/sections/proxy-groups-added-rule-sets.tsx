@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ArrowRight, Check, Pencil, Trash2, X } from "lucide-react";
 import { Button } from "@subboost/ui/components/ui/button";
+import { IconButton } from "@subboost/ui/components/ui/icon-button";
 import {
   Select,
   SelectContent,
@@ -23,6 +24,7 @@ import {
   parseRuleSetTargetValue,
   type CustomRoutingRuleSetItem,
 } from "@subboost/core/rules/custom-routing-rule-sets";
+import { DEFAULT_RULE_PROVIDER_BASE_URL } from "@subboost/core/rules/metadata";
 import {
   useConfigStore,
   type RuleSetDraft as StoreRuleSetDraft,
@@ -33,6 +35,7 @@ import {
   RULE_EDIT_ROW_CLASS,
   RULE_EDIT_TARGET_SELECT_TRIGGER_CLASS,
   RULE_EDIT_TRAILING_CONTROLS_CLASS,
+  RULE_TYPE_BADGE_CLASS,
 } from "./proxy-groups-rule-editor-layout";
 
 type RuleSetDraft = {
@@ -43,8 +46,12 @@ type RuleSetDraft = {
 
 function formatRuleSetPathForDisplay(path: string): string {
   const normalized = normalizeRuleSetPathInput(path);
-  if (/^(?:geosite|geoip)\/[^/?#\s]+\.mrs$/i.test(normalized)) {
-    return normalized.slice(0, -".mrs".length);
+  const metaCubeXPrefix = `${DEFAULT_RULE_PROVIDER_BASE_URL.replace(/\/+$/, "")}/`;
+  const displayPath = normalized.toLowerCase().startsWith(metaCubeXPrefix.toLowerCase())
+    ? normalized.slice(metaCubeXPrefix.length)
+    : normalized;
+  if (/^(?:geosite|geoip)\/[^/?#\s]+\.mrs$/i.test(displayPath)) {
+    return displayPath.slice(0, -".mrs".length);
   }
   return normalized;
 }
@@ -324,6 +331,7 @@ export function ProxyGroupsAddedRuleSets({
                     </Select>
                     <div className="flex h-7 shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2">
                       <Switch
+                        aria-label={`设置 ${item.name} no-resolve`}
                         checked={draft.noResolve}
                         onCheckedChange={(noResolve) =>
                           setDraft((prev) =>
@@ -381,7 +389,7 @@ export function ProxyGroupsAddedRuleSets({
               key={item.key}
               className="flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px]"
             >
-              <span className="rounded border border-indigo-400/20 bg-indigo-500/10 px-1.5 py-0.5 font-medium text-indigo-200">
+              <span className={RULE_TYPE_BADGE_CLASS}>
                 RULE-SET
               </span>
               <span
@@ -403,22 +411,24 @@ export function ProxyGroupsAddedRuleSets({
                 {item.target.name}
               </span>
               <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                <button
+                <IconButton
+                  label="编辑规则集"
+                  variant="ghost"
                   type="button"
                   onClick={() => startEditing(item)}
                   className="inline-flex h-5 w-5 items-center justify-center rounded-md text-white/35 transition-colors hover:bg-white/10 hover:text-white/80"
-                  title="编辑规则集"
                 >
                   <Pencil className="h-3 w-3" />
-                </button>
-                <button
+                </IconButton>
+                <IconButton
+                  label="删除规则集"
+                  variant="ghost"
                   type="button"
                   onClick={() => removeRuleSet(item)}
                   className="inline-flex h-5 w-5 items-center justify-center rounded-md text-white/30 transition-colors hover:bg-red-500/10 hover:text-red-300"
-                  title="删除规则集"
                 >
                   <Trash2 className="h-3 w-3" />
-                </button>
+                </IconButton>
               </div>
             </div>
           );

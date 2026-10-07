@@ -1,6 +1,7 @@
 import type { ConfigState, SourceType, SubscriptionSource } from "./definitions";
 import { initialState } from "./definitions";
 import { safeParseJsonObject } from "@subboost/core/json";
+import { normalizeNodeNameFilterConfig } from "@subboost/core/subscription/node-name-filter";
 import { resolveProxyGroupAdvancedModeEnabled } from "@subboost/core/proxy-group-advanced-mode";
 import { normalizeRuleModelFromConfig } from "@subboost/core/rules/rule-model";
 import { captureEditingSubscriptionHandoff } from "@subboost/ui/store/ui-store";
@@ -111,6 +112,9 @@ function hasMeaningfulConfig(state: ConfigState): boolean {
   return (
     state.sources.some((source) => source.content.trim()) ||
     state.nodes.length > 0 ||
+    state.nodeNameFilter.enabled ||
+    state.nodeNameFilter.excludeRegexes.length > 0 ||
+    (state.nodeNameFilter.includeRegexes?.length ?? 0) > 0 ||
     state.deletedNodeNames.length > 0 ||
     state.deletedNodes.length > 0 ||
     state.customRules.length > 0 ||
@@ -136,7 +140,8 @@ function hasMeaningfulConfig(state: ConfigState): boolean {
     state.ruleProviderBaseUrl !== initialState.ruleProviderBaseUrl ||
     state.cnIpNoResolve !== initialState.cnIpNoResolve ||
     state.experimentalCnUseCnRuleSet !== initialState.experimentalCnUseCnRuleSet ||
-    Object.keys(state.listenerPorts).length > 0
+    Object.keys(state.listenerPorts).length > 0 ||
+    state.groupListeners.length > 0
   );
 }
 
@@ -144,6 +149,7 @@ function buildHandoffState(state: ConfigState): Partial<ConfigState> {
   return {
     sources: sourceArray(state.sources) ?? [],
     nodes: state.nodes,
+    nodeNameFilter: normalizeNodeNameFilterConfig(state.nodeNameFilter),
     deletedNodeNames: state.deletedNodeNames,
     deletedNodes: state.deletedNodes,
     template: state.template,
@@ -170,6 +176,7 @@ function buildHandoffState(state: ConfigState): Partial<ConfigState> {
     cnIpNoResolve: state.cnIpNoResolve,
     experimentalCnUseCnRuleSet: state.experimentalCnUseCnRuleSet,
     listenerPorts: state.listenerPorts,
+    groupListeners: state.groupListeners,
   };
 }
 
@@ -181,6 +188,7 @@ function normalizeHandoffState(raw: unknown): Partial<ConfigState> | null {
   if (sources) out.sources = sources;
   const nodes = objectArray<ConfigState["nodes"][number]>(raw.nodes);
   if (nodes) out.nodes = nodes;
+  out.nodeNameFilter = normalizeNodeNameFilterConfig(raw.nodeNameFilter);
   const deletedNodeNames = stringArray(raw.deletedNodeNames);
   if (deletedNodeNames) out.deletedNodeNames = deletedNodeNames;
   const deletedNodes = objectArray<ConfigState["deletedNodes"][number]>(raw.deletedNodes);
@@ -235,6 +243,8 @@ function normalizeHandoffState(raw: unknown): Partial<ConfigState> | null {
   }
   const listenerPorts = numberRecord(raw.listenerPorts);
   if (listenerPorts) out.listenerPorts = listenerPorts;
+  const groupListeners = objectArray<ConfigState["groupListeners"][number]>(raw.groupListeners);
+  if (groupListeners) out.groupListeners = groupListeners;
 
   return out;
 }

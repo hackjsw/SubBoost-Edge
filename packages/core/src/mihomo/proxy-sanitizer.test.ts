@@ -861,7 +861,9 @@ describe("Mihomo proxy sanitizer", () => {
       (vlessWithoutReality["xhttp-opts"] as Record<string, Record<string, unknown>>)["download-settings"]["ech-opts"]
     ).not.toHaveProperty("query-server-name");
 
-    expect(isMihomoSupportedProxyNode({ type: "http", name: "HTTP" })).toBe(true);
+    // Nodes without a usable endpoint are dropped since upstream 6286f8f.
+    expect(isMihomoSupportedProxyNode({ type: "http", name: "HTTP" })).toBe(false);
+    expect(isMihomoSupportedProxyNode({ type: "http", name: "HTTP", server: "http.example.com", port: 80 })).toBe(true);
     expect(
       isMihomoSupportedProxyNode({
         type: "wireguard",

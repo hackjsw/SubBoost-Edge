@@ -182,6 +182,32 @@ describe("VisualGraph", () => {
     expect(mocks.captures.proxyGroupsPreview).toBeUndefined();
   });
 
+  it("renders counts and node previews from effective nodes", () => {
+    mocks.store.nodes = [
+      { name: "TAG-Notice", _originName: "套餐到期提醒", type: "ss" },
+      { name: "US", type: "vless" },
+    ];
+    mocks.store.nodeNameFilter = {
+      enabled: true,
+      excludeRegexes: ["套餐到期"],
+    };
+
+    const { html } = renderGraph();
+
+    expect(html).toContain("US");
+    expect(html).not.toContain("TAG-Notice");
+    expect(mocks.captures.protocolBadges.map((props: any) => props.type)).toEqual(["vless"]);
+    expect(
+      mocks.captures.proxyGroupsPreview.displayGroups.find(
+        (group: any) => group.id === "dialer:d1",
+      ).dialer,
+    ).toEqual({
+      relayNodes: ["Relay"],
+      targetNodes: [],
+      type: "select",
+    });
+  });
+
   it("builds display groups, node previews, custom rules, and drag callbacks", () => {
     const { html, setters } = renderGraph({ 0: new Set(["module:auto"]), 1: null, 2: null, 3: 360 });
 
@@ -190,6 +216,14 @@ describe("VisualGraph", () => {
     expect(mocks.captures.customRulesPreview).toEqual({
       customRules: [{ id: "manual" }],
       ruleSets: [{ id: "rs1" }],
+      moduleNames: {
+        select: "🚀 节点选择",
+        auto: "⚡ 自动选择",
+        ad: "🛑 广告拦截",
+      },
+      customProxyGroups: [
+        expect.objectContaining({ id: "custom-1", name: "🧩 Custom" }),
+      ],
     });
 
     const preview = mocks.captures.proxyGroupsPreview;
@@ -240,6 +274,12 @@ describe("VisualGraph", () => {
     expect(mocks.captures.customRulesPreview).toEqual({
       customRules: [],
       ruleSets: [],
+      moduleNames: {
+        select: "🚀 节点选择",
+        auto: "⚡ 自动选择",
+        ad: "🛑 广告拦截",
+      },
+      customProxyGroups: [],
     });
   });
 

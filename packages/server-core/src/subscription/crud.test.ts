@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NodeNameFilterConfigError } from "@subboost/core/subscription/node-name-filter";
 import {
   areSubscriptionUrlListsEquivalent,
   normalizeSubscriptionConfigForPersistence,
@@ -8,6 +9,7 @@ import {
   normalizeSubscriptionUrlList,
   serializeSubscriptionDetailData,
   serializeSubscriptionSummaryData,
+  validateSubscriptionNodeList,
 } from "./crud";
 
 describe("subscription CRUD shared helpers", () => {
@@ -27,6 +29,33 @@ describe("subscription CRUD shared helpers", () => {
     });
     expect(areSubscriptionUrlListsEquivalent(["b", "a"], ["a", "b"])).toBe(true);
     expect(areSubscriptionUrlListsEquivalent(["a"], ["a", "b"])).toBe(false);
+  });
+
+  it("strictly validates persisted node lists without blocking unknown forward-compatible types", () => {
+    expect(
+      validateSubscriptionNodeList([
+        { name: "Future", type: "future-protocol", server: "future.example.com", port: 443, "dialer-proxy": "x" },
+        { name: "Direct", type: "direct" },
+        { name: "DNS", type: "dns" },
+        { name: "Relay", type: "relay", proxies: ["Future"] },
+      ])
+    ).toEqual([
+      { name: "Future", type: "future-protocol", server: "future.example.com", port: 443 },
+      { name: "Direct", type: "direct" },
+      { name: "DNS", type: "dns" },
+      { name: "Relay", type: "relay", proxies: ["Future"] },
+    ]);
+
+    for (const [value, message] of [
+      ["bad", "节点列表必须是数组"],
+      [[null], "节点 #1 必须是对象"],
+      [[{ name: "", type: "ss", server: "x", port: 1 }], "节点 #1 缺少有效名称"],
+      [[{ name: "A", type: "ss", server: "", port: 1 }], "节点 #1 缺少有效服务器地址"],
+      [[{ name: "A", type: "ss", server: "x", port: 0 }], "节点 #1 的端口"],
+      [[{ name: "A", type: "relay", proxies: [""] }], "relay proxies"],
+    ] as const) {
+      expect(() => validateSubscriptionNodeList(value)).toThrow(message);
+    }
   });
 
   it("normalizes config, sources, and smart node matching state", () => {
@@ -71,6 +100,100 @@ describe("subscription CRUD shared helpers", () => {
     ).toEqual({ old: true, smartNodeMatchingEnabled: true });
   });
 
+  it("strictly normalizes a persisted node name filter after config merge", () => {
+    expect(
+      normalizeSubscriptionConfigForPersistence(
+        { config: { theme: "light" } },
+        {
+          existingConfig: {
+            keep: true,
+            nodeNameFilter: {
+              enabled: true,
+              excludeRegexes: ["  expired  ", "", "expired", "Traffic"],
+            },
+          },
+        }
+      )
+    ).toEqual({
+      keep: true,
+      theme: "light",
+      nodeNameFilter: {
+        enabled: true,
+        excludeRegexes: ["expired", "Traffic"],
+      },
+    });
+  });
+
+  it("keeps node name filter absent for legacy configs", () => {
+    const merged = normalizeSubscriptionConfigForPersistence(
+      { config: { theme: "light" } },
+      { existingConfig: { keep: true } }
+    );
+    expect(merged).toEqual({ keep: true, theme: "light" });
+    expect(merged).not.toHaveProperty("nodeNameFilter");
+
+    const replaced = normalizeSubscriptionConfigForPersistence(
+      { config: { theme: "light" } },
+      {
+        existingConfig: {
+          nodeNameFilter: {
+            enabled: true,
+            excludeRegexes: ["expired"],
+          },
+        },
+        mergeExistingConfig: false,
+      }
+    );
+    expect(replaced).toEqual({ theme: "light" });
+    expect(replaced).not.toHaveProperty("nodeNameFilter");
+  });
+
+  it("rejects invalid node name filter syntax with structured line errors", () => {
+    try {
+      normalizeSubscriptionConfigForPersistence({
+        config: {
+          nodeNameFilter: {
+            enabled: true,
+            excludeRegexes: ["valid", "["],
+          },
+        },
+      });
+      throw new Error("Expected invalid node name filter syntax to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(NodeNameFilterConfigError);
+      expect((error as NodeNameFilterConfigError).errors).toEqual([
+        {
+          code: "invalid_regex",
+          line: 2,
+          message: "正则语法无效",
+        },
+      ]);
+    }
+  });
+
+  it("rejects unsafe node name filter regexes with structured line errors", () => {
+    try {
+      normalizeSubscriptionConfigForPersistence({
+        config: {
+          nodeNameFilter: {
+            enabled: true,
+            excludeRegexes: ["safe", "(a+)+$"],
+          },
+        },
+      });
+      throw new Error("Expected unsafe node name filter regex to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(NodeNameFilterConfigError);
+      expect((error as NodeNameFilterConfigError).errors).toEqual([
+        {
+          code: "unsafe_regex",
+          line: 2,
+          message: "正则可能导致运行时间过长",
+        },
+      ]);
+    }
+  });
+
   it("serializes summary and detail response data", () => {
     const subscription = {
       id: "sub-1",
@@ -86,6 +209,10 @@ describe("subscription CRUD shared helpers", () => {
       autoUpdateState: {
         externalFailureCount: 2,
         lastFailedAt: new Date("2026-06-01T04:00:00.000Z"),
+        nodeQuotaFailureCount: 2,
+        lastNodeQuotaExceededAt: new Date("2026-06-01T05:00:00.000Z"),
+        lastNodeQuotaActual: 120,
+        lastNodeQuotaLimit: 100,
       },
     };
     const secrets = {
@@ -112,6 +239,10 @@ describe("subscription CRUD shared helpers", () => {
       autoUpdateState: {
         externalFailureCount: 2,
         lastFailedAt: "2026-06-01T04:00:00.000Z",
+        nodeQuotaFailureCount: 2,
+        lastNodeQuotaExceededAt: "2026-06-01T05:00:00.000Z",
+        lastNodeQuotaActual: 120,
+        lastNodeQuotaLimit: 100,
         disabledAt: null,
       },
       yamlUrl: "https://subboost.example/s/token-1.yaml",

@@ -95,6 +95,29 @@ export interface ListenerConfig {
   [key: string]: unknown;
 }
 
+/**
+ * 分组监听绑定：给一个"已存在的策略组"开本地 mixed inbound 监听端口。
+ * target 保存稳定 ID（而非组显示名），策略组改名后监听仍然有效。
+ * 生成时映射为 listeners 条目：{ name: 自动, type: mixed, listen, port, proxy: 组当前名称, udp: true }。
+ */
+export type GroupListenerTargetKind = "module" | "custom" | "dialer";
+
+export interface GroupListenerTarget {
+  // module = 内置分流组（PROXY_GROUP_MODULES 的 id），custom = 自定义分流组，dialer = 中转组
+  kind: GroupListenerTargetKind;
+  id: string;
+}
+
+export interface GroupListenerBinding {
+  id: string;
+  target: GroupListenerTarget;
+  port: number;
+  // 默认启用；false 时保留配置但不生成 listener
+  enabled?: boolean;
+  // 默认 false → listen 127.0.0.1；true → 0.0.0.0（允许局域网访问，需用户显式开启）
+  allowLan?: boolean;
+}
+
 export interface SnifferConfig {
   enable?: boolean;
   "parse-pure-ip"?: boolean;
@@ -239,6 +262,7 @@ export function isProxyGroupGroupType(value: unknown): value is ProxyGroupGroupT
 }
 
 export interface ProxyGroupAdvancedConfig {
+  testUrl?: string;
   sourceIds?: string[];
   regions?: NodeRegion[];
   includeRegex?: string;

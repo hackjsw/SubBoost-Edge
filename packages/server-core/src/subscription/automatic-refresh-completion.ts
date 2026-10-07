@@ -1,6 +1,7 @@
 import type { AutomaticRefreshFailureAnalysis, SubscriptionAutoUpdateStateFields } from "./auto-update-state";
 import {
   buildAutomaticRefreshAutoUpdateState,
+  buildAutomaticRefreshNodeQuotaExceededState,
   buildAutomaticRefreshUnexpectedFailureState,
   markAutomaticRefreshAttempted,
   type AutomaticRefreshAutoUpdateStateResult,
@@ -25,6 +26,7 @@ export type AutomaticRefreshCompletionPrepared = {
 
 export type AutomaticRefreshCompletionStateHelpers = {
   buildAutomaticRefreshAutoUpdateState: typeof buildAutomaticRefreshAutoUpdateState;
+  buildAutomaticRefreshNodeQuotaExceededState: typeof buildAutomaticRefreshNodeQuotaExceededState;
   markAutomaticRefreshAttempted: typeof markAutomaticRefreshAttempted;
 };
 
@@ -46,7 +48,7 @@ export type AutomaticRefreshCompletionDecision =
     }
   | {
       kind: "node_quota_exceeded";
-      attemptedState: SubscriptionAutoUpdateStateFields;
+      nextAutoUpdateState: AutomaticRefreshAutoUpdateStateResult;
       outcome: CronUpdateOutcome;
     }
   | {
@@ -64,6 +66,7 @@ export type AutomaticRefreshUnexpectedFailureCompletion = {
 
 const defaultCompletionStateHelpers: AutomaticRefreshCompletionStateHelpers = {
   buildAutomaticRefreshAutoUpdateState,
+  buildAutomaticRefreshNodeQuotaExceededState,
   markAutomaticRefreshAttempted,
 };
 
@@ -118,6 +121,8 @@ export function resolveAutomaticRefreshCompletionDecision(params: {
       failureState: params.prepared.failureState,
       attemptedAt: params.attemptedAt,
       previousAutoUpdateInterval: params.target.autoUpdateInterval,
+      currentState: params.currentAutoUpdateState,
+      preserveNodeQuotaFailure: true,
     });
 
     return {
@@ -152,14 +157,28 @@ export function resolveAutomaticRefreshCompletionDecision(params: {
 
   if (!refreshResult.ok && refreshResult.reason === "node_quota_exceeded") {
     const maxNodes = refreshResult.maxNodesPerSubscription ?? params.maxNodesPerSubscription;
+    const nextAutoUpdateState = helpers.buildAutomaticRefreshNodeQuotaExceededState({
+      currentState: params.currentAutoUpdateState,
+      attemptedAt: params.attemptedAt,
+      actualNodeCount: refreshResult.nodeCount,
+      effectiveNodeLimit: maxNodes,
+      previousAutoUpdateInterval: params.target.autoUpdateInterval,
+    });
+    const diagnostic = `${AUTOMATIC_REFRESH_NODE_QUOTA_EXCEEDED_MESSAGE}: actual=${refreshResult.nodeCount}, limit=${maxNodes}, streak=${nextAutoUpdateState.state.nodeQuotaFailureCount}`;
     return {
       kind: "node_quota_exceeded",
-      attemptedState: helpers.markAutomaticRefreshAttempted(params.currentAutoUpdateState, params.attemptedAt),
+      nextAutoUpdateState,
       outcome: {
         status: "failed",
         requestedHosts: params.prepared.requestedHosts,
         recordHosts: false,
-        resultsError: `Subscription ${params.target.id}: ${AUTOMATIC_REFRESH_NODE_QUOTA_EXCEEDED_MESSAGE} (${maxNodes})`,
+        resultsError: `Subscription ${params.target.id}: ${diagnostic}`,
+        failedSubscription: buildAutomaticRefreshSubscriptionSummary({
+          target: params.target,
+          hosts: [],
+          nodeCount: refreshResult.nodeCount,
+          error: diagnostic,
+        }),
       },
     };
   }
@@ -197,12 +216,13 @@ export function resolveAutomaticRefreshUnexpectedFailureCompletion(params: {
   requestedHosts: string[];
   error: unknown;
   attemptStartedAt: Date | null;
+  currentAutoUpdateState?: SubscriptionAutoUpdateStateFields;
   stateHelpers?: AutomaticRefreshUnexpectedFailureStateHelpers;
 }): AutomaticRefreshUnexpectedFailureCompletion {
   const helpers = params.stateHelpers ?? defaultUnexpectedFailureStateHelpers;
   const message = params.error instanceof Error ? params.error.message : "Unknown error";
   const attemptedState = params.attemptStartedAt
-    ? helpers.buildAutomaticRefreshUnexpectedFailureState(params.attemptStartedAt)
+    ? helpers.buildAutomaticRefreshUnexpectedFailureState(params.attemptStartedAt, params.currentAutoUpdateState)
     : undefined;
 
   return {

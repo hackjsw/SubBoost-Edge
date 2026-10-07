@@ -31,9 +31,18 @@ export function createDialerActions(
     },
 
     removeDialerProxyGroup: (id: string) => {
-      setAndGenerateConfig((state) => ({
-        dialerProxyGroups: state.dialerProxyGroups.filter((g) => g.id !== id),
-      }));
+      setAndGenerateConfig((state) => {
+        // 分组删除后监听绑定失去目标且无 UI 入口可清理，必须连带移除
+        const nextGroupListeners = state.groupListeners.filter(
+          (binding) => !(binding && binding.target && binding.target.kind === "dialer" && binding.target.id === id),
+        );
+        return {
+          dialerProxyGroups: state.dialerProxyGroups.filter((g) => g.id !== id),
+          ...(nextGroupListeners.length !== state.groupListeners.length
+            ? { groupListeners: nextGroupListeners }
+            : {}),
+        };
+      });
     },
 
     updateDialerProxyGroup: (id: string, group: Partial<DialerProxyGroup>) => {

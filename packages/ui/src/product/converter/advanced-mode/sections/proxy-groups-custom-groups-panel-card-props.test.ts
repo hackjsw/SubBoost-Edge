@@ -94,6 +94,10 @@ vi.mock("./proxy-group-type-menu", () => ({
   ProxyGroupTypeMenu: () => null,
 }));
 
+vi.mock("./group-advanced-settings-dialog", () => ({
+  GroupAdvancedSettingsDialog: () => null,
+}));
+
 vi.mock("./proxy-groups-module-card", () => ({
   ProxyGroupsModuleCard: (props: any) => {
     mocks.cards.push(props);
@@ -170,14 +174,16 @@ describe("ProxyGroupsCustomGroupsPanel card props", () => {
     card.onAddRuleToCustomGroup();
     card.onRemoveExtraRule();
     card.onMoveRule();
-    card.onMoveManualRule("manual-1", "Auto");
+    card.onMoveManualRule("manual-1", { kind: "module", id: "auto", name: "Auto" });
     card.onRemoveManualRule(0);
     card.onRestoreRule();
     card.onResetRuleTarget();
     card.onChangeCnIpNoResolve(true);
     card.onChangeExperimentalCnUseCnRuleSet(true);
-    card.onChangeGroupType({ groupType: "load-balance", strategy: "round-robin" });
-    card.onChangeGroupType({ groupType: "select" });
+    // 类型/监听改动统一走高级设置弹窗（onSave 行为见 proxy-groups-custom-groups-panel.test.ts）
+    expect(typeof card.onOpenAdvancedSettings).toBe("function");
+    expect(card.advancedSettingsActive).toBe(false);
+    card.onOpenAdvancedSettings();
 
     const advanced = card.renderAdvancedContent(React.createElement("div", null, "rules"), 2) as React.ReactElement<any>;
     advanced.props.onChange({ regions: ["us"] });
@@ -185,16 +191,10 @@ describe("ProxyGroupsCustomGroupsPanel card props", () => {
 
     expect(mocks.store.updateCustomProxyGroup).toHaveBeenCalledWith("custom-1", { enabled: true });
     expect(mocks.store.removeCustomProxyGroup).toHaveBeenCalledWith("custom-1");
-    expect(mocks.store.updateCustomRule).toHaveBeenCalledWith("manual-1", { target: "Auto" });
+    expect(mocks.store.updateCustomRule).toHaveBeenCalledWith("manual-1", {
+      target: { kind: "module", id: "auto" },
+    });
     expect(mocks.store.removeCustomRule).toHaveBeenCalledWith(0);
-    expect(mocks.store.updateCustomProxyGroup).toHaveBeenCalledWith("custom-1", {
-      groupType: "load-balance",
-      strategy: "round-robin",
-    });
-    expect(mocks.store.updateCustomProxyGroup).toHaveBeenCalledWith("custom-1", {
-      groupType: "select",
-      strategy: undefined,
-    });
     expect(mocks.store.updateCustomProxyGroup).toHaveBeenCalledWith("custom-1", {
       advanced: { sourceIds: ["old-source"], regions: ["us"] },
     });
