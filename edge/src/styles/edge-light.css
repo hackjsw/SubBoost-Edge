@@ -1,11 +1,18 @@
 :root.edgesub-light {
   color-scheme: light;
+  /* Mirrors the --es-* neutrals in edgesub.css: measured lightness kept, hue from the accent.
+     Literals first as the fallback for browsers without relative color syntax. */
   --background: #f4f7f7;
+  --background: oklch(from var(--es-accent) 0.971 0.0068 h);
   --foreground: #172321;
+  --foreground: oklch(from var(--es-accent) 0.244 0.0172 h);
   --card: #ffffff;
   --card-hover: #f8faf9;
+  --card-hover: oklch(from var(--es-accent) 0.98 0.0068 h);
   --border: #d7e0de;
+  --border: oklch(from var(--es-accent) 0.9 0.018 h);
   --muted: #60706d;
+  --muted: oklch(from var(--es-accent) 0.52 0.0212 h);
 
   /* The shared SubBoost UI uses white as its dark-theme ink token. */
   --color-white: #172321;
@@ -41,7 +48,7 @@ html.edgesub-light body {
 
 @layer base {
   html.edgesub-light * {
-    border-color: #d7e0de;
+    border-color: var(--es-line);
   }
 }
 
@@ -53,8 +60,8 @@ html.edgesub-light body {
 .edgesub-light .bg-\[\#1a1a1a\],
 .edgesub-light .glass-card,
 .edgesub-light .glass-card-hover {
-  background-color: #ffffff !important;
-  border-color: #d7e0de !important;
+  background-color: var(--es-surface) !important;
+  border-color: var(--es-line) !important;
   box-shadow: 0 12px 32px rgb(23 35 33 / 7%);
 }
 
@@ -66,7 +73,7 @@ html.edgesub-light body {
 
 .edgesub-light .bg-black\/30,
 .edgesub-light .bg-black\/10 {
-  background-color: #edf3f1 !important;
+  background-color: var(--es-chip) !important;
 }
 
 .edgesub-light .bg-white {

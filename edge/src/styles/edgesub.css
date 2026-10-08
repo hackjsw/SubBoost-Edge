@@ -12,6 +12,7 @@
    :root repeats orange so the page still renders if the boot script never runs. */
 :root,
 html[data-accent="orange"] {
+  --es-accent: #c2410c;
   --es-ramp-50: #ffedd5;
   --es-ramp-100: #fed7aa;
   --es-ramp-200: #fdba74;
@@ -26,6 +27,7 @@ html[data-accent="orange"] {
 }
 
 html[data-accent="amber"] {
+  --es-accent: #b45309;
   --es-ramp-50: #fef3c7;
   --es-ramp-100: #fde68a;
   --es-ramp-200: #fcd34d;
@@ -40,6 +42,7 @@ html[data-accent="amber"] {
 }
 
 html[data-accent="rose"] {
+  --es-accent: #e11d48;
   --es-ramp-50: #fff1f2;
   --es-ramp-100: #ffe4e6;
   --es-ramp-200: #fecdd3;
@@ -54,6 +57,7 @@ html[data-accent="rose"] {
 }
 
 html[data-accent="violet"] {
+  --es-accent: #7c3aed;
   --es-ramp-50: #f5f3ff;
   --es-ramp-100: #ede9fe;
   --es-ramp-200: #ddd6fe;
@@ -68,6 +72,7 @@ html[data-accent="violet"] {
 }
 
 html[data-accent="indigo"] {
+  --es-accent: #4f46e5;
   --es-ramp-50: #eef2ff;
   --es-ramp-100: #e0e7ff;
   --es-ramp-200: #c7d2fe;
@@ -82,6 +87,7 @@ html[data-accent="indigo"] {
 }
 
 html[data-accent="blue"] {
+  --es-accent: #2563eb;
   --es-ramp-50: #eff6ff;
   --es-ramp-100: #dbeafe;
   --es-ramp-200: #bfdbfe;
@@ -96,6 +102,7 @@ html[data-accent="blue"] {
 }
 
 html[data-accent="cyan"] {
+  --es-accent: #0e7490;
   --es-ramp-50: #cffafe;
   --es-ramp-100: #a5f3fc;
   --es-ramp-200: #67e8f9;
@@ -110,6 +117,7 @@ html[data-accent="cyan"] {
 }
 
 html[data-accent="green"] {
+  --es-accent: #047857;
   --es-ramp-50: #d1fae5;
   --es-ramp-100: #a7f3d0;
   --es-ramp-200: #6ee7b7;
@@ -123,36 +131,63 @@ html[data-accent="green"] {
   --es-ramp-950: #011b15;
 }
 
-/* A custom accent arrives as a single --es-accent hex (set inline by the boot script) and
-   anchors ramp-600, the light-theme button fill, so buttons come out the color the user picked.
-   The percentages are fitted against the Tailwind orange ramp; mixing toward black tracks it
-   closely, mixing toward white less so, since Tailwind's light stops drift in hue. */
+/* A custom accent arrives as a single --es-accent hex, set inline by the boot script.
+   Stops take ABSOLUTE lightness from oklch(from ...) and only the hue from the pick, so a pale
+   pink and a navy both yield a usable ramp. Mixing toward white instead (the first attempt)
+   collapsed the top of the ramp for light picks -- #ffc0cb produced a #ffedf0 border, invisible
+   on white. ramp-600 stays the pick verbatim: that is the button fill, and it must be the exact
+   color the user chose.
+   Each line keeps a color-mix fallback first for browsers without relative color syntax
+   (pre-Chrome 119 / Safari 16.4 / Firefox 128); they get the older, flatter derivation. */
 html[data-accent="custom"] {
   --es-ramp-50: color-mix(in oklab, var(--es-accent) 6%, white);
+  --es-ramp-50: oklch(from var(--es-accent) 0.97 calc(c * 0.12) h);
   --es-ramp-100: color-mix(in oklab, var(--es-accent) 13%, white);
+  --es-ramp-100: oklch(from var(--es-accent) 0.94 calc(c * 0.22) h);
   --es-ramp-200: color-mix(in oklab, var(--es-accent) 29%, white);
+  --es-ramp-200: oklch(from var(--es-accent) 0.88 calc(c * 0.4) h);
   --es-ramp-300: color-mix(in oklab, var(--es-accent) 49%, white);
+  --es-ramp-300: oklch(from var(--es-accent) 0.8 calc(c * 0.62) h);
   --es-ramp-400: color-mix(in oklab, var(--es-accent) 72%, white);
+  --es-ramp-400: oklch(from var(--es-accent) 0.72 calc(c * 0.85) h);
   --es-ramp-500: color-mix(in oklab, var(--es-accent) 85%, white);
+  --es-ramp-500: oklch(from var(--es-accent) 0.64 c h);
   --es-ramp-600: var(--es-accent);
   --es-ramp-700: color-mix(in oklab, var(--es-accent) 86%, black);
+  --es-ramp-700: oklch(from var(--es-accent) 0.5 calc(c * 0.95) h);
   --es-ramp-800: color-mix(in oklab, var(--es-accent) 73%, black);
+  --es-ramp-800: oklch(from var(--es-accent) 0.42 calc(c * 0.85) h);
   --es-ramp-900: color-mix(in oklab, var(--es-accent) 63%, black);
+  --es-ramp-900: oklch(from var(--es-accent) 0.34 calc(c * 0.7) h);
   --es-ramp-950: color-mix(in oklab, var(--es-accent) 41%, black);
+  --es-ramp-950: oklch(from var(--es-accent) 0.22 calc(c * 0.5) h);
 }
 
 html[data-theme="light"] {
   color-scheme: light;
+  /* Neutrals carry the accent's hue. They were already a tinted family (every stop sat near
+     hue 174-184 with chroma rising from 0.003 to 0.021), so each one keeps its measured
+     lightness and takes double its measured chroma -- only the hue rotates. Surfaces stay pure
+     white to keep cards crisp against the tinted page. Text keeps its original 1x chroma so
+     body copy never reads as colored. Literals first as the pre-relative-color fallback. */
   --es-bg: #f3f6f5;
+  --es-bg: oklch(from var(--es-accent) 0.971 0.0068 h);
   --es-surface: #ffffff;
   --es-surface-2: #f6f9f8;
+  --es-surface-2: oklch(from var(--es-accent) 0.98 0.0068 h);
   --es-card: #ffffff;
   --es-chip: #eef2f1;
+  --es-chip: oklch(from var(--es-accent) 0.958 0.009 h);
   --es-line: #dde5e3;
+  --es-line: oklch(from var(--es-accent) 0.915 0.018 h);
   --es-line-strong: #c9d5d2;
+  --es-line-strong: oklch(from var(--es-accent) 0.863 0.0272 h);
   --es-ink: #172321;
+  --es-ink: oklch(from var(--es-accent) 0.244 0.0172 h);
   --es-muted: #536461;
+  --es-muted: oklch(from var(--es-accent) 0.488 0.0212 h);
   --es-faint: #7a8a87;
+  --es-faint: oklch(from var(--es-accent) 0.62 0.0191 h);
   --es-brand: var(--es-ramp-600);
   --es-brand-strong: var(--es-ramp-700);
   --es-brand-soft: var(--es-ramp-50);
@@ -176,21 +211,34 @@ html[data-theme="light"] {
   --es-scrim: rgb(23 35 33 / 38%);
   --es-glow: none;
   --es-logo-ink: #172321;
+  --es-logo-ink: var(--es-ink);
 }
 
 html[data-theme="dark"] {
   /* "Graphite": neutral dark gray, solid orange accent, no glows. */
   color-scheme: dark;
+  /* Same treatment as light: measured lightness kept, chroma doubled on surfaces and left at
+     1x on text, hue taken from the accent. The dark family already sat near hue 251-258. */
   --es-bg: #111316;
+  --es-bg: oklch(from var(--es-accent) 0.186 0.0138 h);
   --es-surface: #181b1f;
+  --es-surface: oklch(from var(--es-accent) 0.221 0.0182 h);
   --es-surface-2: #1e2227;
+  --es-surface-2: oklch(from var(--es-accent) 0.25 0.0224 h);
   --es-card: #181b1f;
+  --es-card: oklch(from var(--es-accent) 0.221 0.0182 h);
   --es-chip: #252a30;
+  --es-chip: oklch(from var(--es-accent) 0.283 0.0264 h);
   --es-line: #2a2f36;
+  --es-line: oklch(from var(--es-accent) 0.303 0.029 h);
   --es-line-strong: #363c44;
+  --es-line-strong: oklch(from var(--es-accent) 0.354 0.0322 h);
   --es-ink: #e6e8eb;
+  --es-ink: oklch(from var(--es-accent) 0.93 0.0046 h);
   --es-muted: #9aa3ad;
+  --es-muted: oklch(from var(--es-accent) 0.711 0.0178 h);
   --es-faint: #6b7480;
+  --es-faint: oklch(from var(--es-accent) 0.556 0.0216 h);
   --es-brand: var(--es-ramp-400);
   --es-brand-strong: var(--es-ramp-300);
   --es-brand-soft: color-mix(in oklab, var(--es-ramp-400) 14%, transparent);
@@ -211,9 +259,40 @@ html[data-theme="dark"] {
   --es-grad: var(--es-ramp-500);
   --es-on-brand: color-mix(in oklab, var(--es-ramp-950) 60%, black);
   --es-header: rgb(17 19 22 / 88%);
+  --es-header: oklch(from var(--es-accent) 0.186 0.0138 h / 88%);
   --es-scrim: rgb(0 0 0 / 55%);
   --es-glow: none;
   --es-logo-ink: #e6e8eb;
+  --es-logo-ink: var(--es-ink);
+}
+
+/* ---------- custom accent: fill, text and tint are separate roles ----------
+   A preset's ramp-600/400 is readable wherever it lands, so presets reuse one token for the
+   button fill and for accent text. An arbitrary pick cannot: a pale pink is a fine fill but
+   invisible as text on white, and a navy is the reverse. So for custom accents the fill stays
+   the exact pick (with --es-accent-ink, chosen by luminance in accent.ts, as its label) while
+   text and tint roles take fixed lightnesses that are legible in that theme.
+   Two attribute selectors, so these win over the theme blocks whatever the source order. */
+html[data-theme="light"][data-accent="custom"] {
+  --es-brand: color-mix(in oklab, var(--es-accent) 80%, black);
+  --es-brand: oklch(from var(--es-accent) 0.55 c h);
+  --es-brand-strong: color-mix(in oklab, var(--es-accent) 65%, black);
+  --es-brand-strong: oklch(from var(--es-accent) 0.45 c h);
+  --es-brand-soft: var(--es-ramp-50);
+  --es-brand-line: var(--es-ramp-200);
+  --es-grad: var(--es-accent);
+  --es-on-brand: var(--es-accent-ink, #ffffff);
+}
+
+html[data-theme="dark"][data-accent="custom"] {
+  --es-brand: color-mix(in oklab, var(--es-accent) 72%, white);
+  --es-brand: oklch(from var(--es-accent) 0.8 c h);
+  --es-brand-strong: color-mix(in oklab, var(--es-accent) 58%, white);
+  --es-brand-strong: oklch(from var(--es-accent) 0.86 calc(c * 0.8) h);
+  --es-brand-soft: color-mix(in oklab, var(--es-brand) 14%, transparent);
+  --es-brand-line: color-mix(in oklab, var(--es-brand) 38%, transparent);
+  --es-grad: var(--es-accent);
+  --es-on-brand: var(--es-accent-ink, #ffffff);
 }
 
 html[data-theme] body {

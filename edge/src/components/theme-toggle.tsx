@@ -13,8 +13,8 @@ import {
 import {
   ACCENT_PRESETS,
   applyAccent,
+  customAccent,
   DEFAULT_ACCENT,
-  normalizeCustomHex,
   readAccent,
   storeAccent,
   type Accent,
@@ -33,10 +33,14 @@ export function ThemeToggle() {
   const [accent, setAccent] = React.useState<Accent>(DEFAULT_ACCENT);
   const colorInput = React.useRef<HTMLInputElement>(null);
 
-  // The boot script already applied both choices before paint; only mirror them into state.
+  // The boot script already applied both choices before paint, so this only mirrors them into
+  // state. Re-applying is a no-op visually but heals a stored ink that predates a change to
+  // accentInk, since readAccent recomputes it from the hex.
   React.useEffect(() => {
     setPreference(readThemePreference());
-    setAccent(readAccent());
+    const stored = readAccent();
+    setAccent(stored);
+    applyAccent(stored);
   }, []);
 
   React.useEffect(() => {
@@ -75,7 +79,7 @@ export function ThemeToggle() {
         tabIndex={-1}
         aria-hidden="true"
         value={customSeed}
-        onChange={(event) => pickAccent({ id: "custom", hex: normalizeCustomHex(event.target.value) })}
+        onChange={(event) => pickAccent(customAccent(event.target.value))}
       />
       <DropdownMenu.Root>
         <DropdownMenu.Trigger className="es-btn ghost sm icon" title={label} aria-label={label}>
@@ -102,7 +106,7 @@ export function ThemeToggle() {
                   title={preset.label}
                   aria-label={`强调色：${preset.label}`}
                   aria-pressed={accent.id === preset.id}
-                  onClick={() => pickAccent({ id: preset.id, hex: null })}
+                  onClick={() => pickAccent({ id: preset.id, hex: null, ink: null })}
                 />
               ))}
             </div>

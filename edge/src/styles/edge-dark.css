@@ -2,20 +2,33 @@
    EdgeSub "graphite" dark theme with an orange accent so reused sections match the edge-only components. */
 :root.edgesub-dark {
   color-scheme: dark;
+  /* Mirrors the --es-* neutrals in edgesub.css: measured lightness kept, hue from the accent.
+     Literals first as the fallback for browsers without relative color syntax. */
   --background: #111316;
+  --background: oklch(from var(--es-accent) 0.186 0.0138 h);
   --foreground: #e6e8eb;
+  --foreground: oklch(from var(--es-accent) 0.93 0.0046 h);
   --card: #181b1f;
+  --card: oklch(from var(--es-accent) 0.221 0.0182 h);
   --card-hover: #1e2227;
+  --card-hover: oklch(from var(--es-accent) 0.25 0.0224 h);
   --border: #2a2f36;
+  --border: oklch(from var(--es-accent) 0.303 0.029 h);
   --muted: #9aa3ad;
+  --muted: oklch(from var(--es-accent) 0.711 0.0178 h);
   --primary: var(--es-ramp-400);
   --primary-hover: var(--es-ramp-300);
 
   --color-dark: #111316;
+  --color-dark: oklch(from var(--es-accent) 0.186 0.0138 h);
   --color-dark-50: #181b1f;
+  --color-dark-50: oklch(from var(--es-accent) 0.221 0.0182 h);
   --color-dark-100: #1e2227;
+  --color-dark-100: oklch(from var(--es-accent) 0.25 0.0224 h);
   --color-dark-200: #2a2f36;
+  --color-dark-200: oklch(from var(--es-accent) 0.303 0.029 h);
   --color-dark-300: #363c44;
+  --color-dark-300: oklch(from var(--es-accent) 0.354 0.0322 h);
 
   /* Accent ramp stops, defined per preset in edgesub.css. Dark maps them 1:1. */
   --color-primary: var(--es-ramp-400);
@@ -47,13 +60,13 @@
 .edgesub-dark .bg-\[\#1a1a1a\],
 .edgesub-dark .glass-card,
 .edgesub-dark .glass-card-hover {
-  background-color: #181b1f !important;
-  border-color: #2a2f36 !important;
+  background-color: var(--es-surface) !important;
+  border-color: var(--es-line) !important;
 }
 
 .edgesub-dark .bg-black\/95,
 .edgesub-dark .bg-black\/90 {
-  background-color: rgb(24 27 31 / 97%) !important;
+  background-color: color-mix(in oklab, var(--es-surface) 97%, transparent) !important;
 }
 
 .edgesub-dark button.bg-primary-500\/20,

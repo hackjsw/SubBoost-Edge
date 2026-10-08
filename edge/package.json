@@ -1,6 +1,6 @@
 {
   "name": "@subboost/edge",
-  "version": "2.6.0-edge.12",
+  "version": "2.6.0-edge.13",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
