@@ -37,7 +37,3 @@ export function storeThemePreference(preference: ThemePreference): void {
     // Private mode: the choice still applies for this page view.
   }
 }
-
-export function nextThemePreference(current: ThemePreference): ThemePreference {
-  return current === "system" ? "light" : current === "light" ? "dark" : "system";
-}

@@ -1,6 +1,146 @@
 /* EdgeSub v2 UI: theme tokens and edge-only components (prefixed es-).
    Dark ("tech") and light themes share every component rule; only tokens change. */
 
+/* ---------- accent ramps ----------
+   Every brand color in EdgeSub — the --es-brand* tokens here plus the --color-primary-*
+   and --color-indigo-* ramps that edge-light.css / edge-dark.css hand to the shared
+   SubBoost UI — is a stop on one 11-step ramp. A preset only supplies those 11 stops;
+   the light and dark blocks below map stops to roles once, for every preset.
+   Ramps are Tailwind palettes. orange/amber/cyan/green are shifted one stop darker so that
+   every preset's ramp-600 — the light-theme button fill — carries white label text at
+   WCAG AA (4.5:1). Across the eight presets that lands in a 4.70:1 – 6.29:1 band.
+   :root repeats orange so the page still renders if the boot script never runs. */
+:root,
+html[data-accent="orange"] {
+  --es-ramp-50: #ffedd5;
+  --es-ramp-100: #fed7aa;
+  --es-ramp-200: #fdba74;
+  --es-ramp-300: #fb923c;
+  --es-ramp-400: #f97316;
+  --es-ramp-500: #ea580c;
+  --es-ramp-600: #c2410c;
+  --es-ramp-700: #9a3412;
+  --es-ramp-800: #7c2d12;
+  --es-ramp-900: #431407;
+  --es-ramp-950: #2a0c04;
+}
+
+html[data-accent="amber"] {
+  --es-ramp-50: #fef3c7;
+  --es-ramp-100: #fde68a;
+  --es-ramp-200: #fcd34d;
+  --es-ramp-300: #fbbf24;
+  --es-ramp-400: #f59e0b;
+  --es-ramp-500: #d97706;
+  --es-ramp-600: #b45309;
+  --es-ramp-700: #92400e;
+  --es-ramp-800: #78350f;
+  --es-ramp-900: #451a03;
+  --es-ramp-950: #2b1002;
+}
+
+html[data-accent="rose"] {
+  --es-ramp-50: #fff1f2;
+  --es-ramp-100: #ffe4e6;
+  --es-ramp-200: #fecdd3;
+  --es-ramp-300: #fda4af;
+  --es-ramp-400: #fb7185;
+  --es-ramp-500: #f43f5e;
+  --es-ramp-600: #e11d48;
+  --es-ramp-700: #be123c;
+  --es-ramp-800: #9f1239;
+  --es-ramp-900: #881337;
+  --es-ramp-950: #4c0519;
+}
+
+html[data-accent="violet"] {
+  --es-ramp-50: #f5f3ff;
+  --es-ramp-100: #ede9fe;
+  --es-ramp-200: #ddd6fe;
+  --es-ramp-300: #c4b5fd;
+  --es-ramp-400: #a78bfa;
+  --es-ramp-500: #8b5cf6;
+  --es-ramp-600: #7c3aed;
+  --es-ramp-700: #6d28d9;
+  --es-ramp-800: #5b21b6;
+  --es-ramp-900: #4c1d95;
+  --es-ramp-950: #2e1065;
+}
+
+html[data-accent="indigo"] {
+  --es-ramp-50: #eef2ff;
+  --es-ramp-100: #e0e7ff;
+  --es-ramp-200: #c7d2fe;
+  --es-ramp-300: #a5b4fc;
+  --es-ramp-400: #818cf8;
+  --es-ramp-500: #6366f1;
+  --es-ramp-600: #4f46e5;
+  --es-ramp-700: #4338ca;
+  --es-ramp-800: #3730a3;
+  --es-ramp-900: #312e81;
+  --es-ramp-950: #1e1b4b;
+}
+
+html[data-accent="blue"] {
+  --es-ramp-50: #eff6ff;
+  --es-ramp-100: #dbeafe;
+  --es-ramp-200: #bfdbfe;
+  --es-ramp-300: #93c5fd;
+  --es-ramp-400: #60a5fa;
+  --es-ramp-500: #3b82f6;
+  --es-ramp-600: #2563eb;
+  --es-ramp-700: #1d4ed8;
+  --es-ramp-800: #1e40af;
+  --es-ramp-900: #1e3a8a;
+  --es-ramp-950: #172554;
+}
+
+html[data-accent="cyan"] {
+  --es-ramp-50: #cffafe;
+  --es-ramp-100: #a5f3fc;
+  --es-ramp-200: #67e8f9;
+  --es-ramp-300: #22d3ee;
+  --es-ramp-400: #06b6d4;
+  --es-ramp-500: #0891b2;
+  --es-ramp-600: #0e7490;
+  --es-ramp-700: #155e75;
+  --es-ramp-800: #164e63;
+  --es-ramp-900: #083344;
+  --es-ramp-950: #04212c;
+}
+
+html[data-accent="green"] {
+  --es-ramp-50: #d1fae5;
+  --es-ramp-100: #a7f3d0;
+  --es-ramp-200: #6ee7b7;
+  --es-ramp-300: #34d399;
+  --es-ramp-400: #10b981;
+  --es-ramp-500: #059669;
+  --es-ramp-600: #047857;
+  --es-ramp-700: #065f46;
+  --es-ramp-800: #064e3b;
+  --es-ramp-900: #022c22;
+  --es-ramp-950: #011b15;
+}
+
+/* A custom accent arrives as a single --es-accent hex (set inline by the boot script) and
+   anchors ramp-600, the light-theme button fill, so buttons come out the color the user picked.
+   The percentages are fitted against the Tailwind orange ramp; mixing toward black tracks it
+   closely, mixing toward white less so, since Tailwind's light stops drift in hue. */
+html[data-accent="custom"] {
+  --es-ramp-50: color-mix(in oklab, var(--es-accent) 6%, white);
+  --es-ramp-100: color-mix(in oklab, var(--es-accent) 13%, white);
+  --es-ramp-200: color-mix(in oklab, var(--es-accent) 29%, white);
+  --es-ramp-300: color-mix(in oklab, var(--es-accent) 49%, white);
+  --es-ramp-400: color-mix(in oklab, var(--es-accent) 72%, white);
+  --es-ramp-500: color-mix(in oklab, var(--es-accent) 85%, white);
+  --es-ramp-600: var(--es-accent);
+  --es-ramp-700: color-mix(in oklab, var(--es-accent) 86%, black);
+  --es-ramp-800: color-mix(in oklab, var(--es-accent) 73%, black);
+  --es-ramp-900: color-mix(in oklab, var(--es-accent) 63%, black);
+  --es-ramp-950: color-mix(in oklab, var(--es-accent) 41%, black);
+}
+
 html[data-theme="light"] {
   color-scheme: light;
   --es-bg: #f3f6f5;
@@ -13,10 +153,10 @@ html[data-theme="light"] {
   --es-ink: #172321;
   --es-muted: #536461;
   --es-faint: #7a8a87;
-  --es-brand: #ea580c;
-  --es-brand-strong: #c2410c;
-  --es-brand-soft: #fff7ed;
-  --es-brand-line: #fed7aa;
+  --es-brand: var(--es-ramp-600);
+  --es-brand-strong: var(--es-ramp-700);
+  --es-brand-soft: var(--es-ramp-50);
+  --es-brand-line: var(--es-ramp-200);
   --es-blue: #315fcb;
   --es-blue-soft: #eaf0fc;
   --es-danger: #b42318;
@@ -51,10 +191,10 @@ html[data-theme="dark"] {
   --es-ink: #e6e8eb;
   --es-muted: #9aa3ad;
   --es-faint: #6b7480;
-  --es-brand: #fb923c;
-  --es-brand-strong: #fdba74;
-  --es-brand-soft: rgb(251 146 60 / 14%);
-  --es-brand-line: rgb(251 146 60 / 38%);
+  --es-brand: var(--es-ramp-400);
+  --es-brand-strong: var(--es-ramp-300);
+  --es-brand-soft: color-mix(in oklab, var(--es-ramp-400) 14%, transparent);
+  --es-brand-line: color-mix(in oklab, var(--es-ramp-400) 38%, transparent);
   --es-blue: #60a5fa;
   --es-blue-soft: rgb(96 165 250 / 14%);
   --es-danger: #f87171;
@@ -68,8 +208,8 @@ html[data-theme="dark"] {
   --es-ok-soft: rgb(52 211 153 / 12%);
   --es-shadow: 0 1px 2px rgb(0 0 0 / 30%);
   --es-pop-shadow: 0 12px 32px rgb(0 0 0 / 45%);
-  --es-grad: #f97316;
-  --es-on-brand: #1c0a00;
+  --es-grad: var(--es-ramp-500);
+  --es-on-brand: color-mix(in oklab, var(--es-ramp-950) 60%, black);
   --es-header: rgb(17 19 22 / 88%);
   --es-scrim: rgb(0 0 0 / 55%);
   --es-glow: none;
@@ -160,6 +300,16 @@ html[data-theme="dark"] .es-seg button[aria-selected="true"] { background: #353b
 .es-menu-item.danger { color: var(--es-danger); }
 .es-menu-item svg { width: 16px; height: 16px; flex: none; }
 .es-menu-sep { height: 1px; margin: 6px 0; background: var(--es-line); }
+.es-menu-label { padding: 6px 10px 2px; color: var(--es-faint); font-size: 12px; font-weight: 600; }
+.es-menu-tick { margin-left: auto; color: var(--es-brand-strong); }
+.es-swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 4px 10px 8px; }
+.es-swatch { width: 100%; height: 26px; padding: 0; border-radius: 7px; border: 1px solid var(--es-line); cursor: pointer; }
+.es-swatch:hover { border-color: var(--es-line-strong); }
+.es-swatch:focus-visible { outline: 2px solid var(--es-brand); outline-offset: 2px; }
+.es-swatch.on { box-shadow: inset 0 0 0 2px var(--es-surface); border-color: var(--es-ink); }
+/* The native color input lives outside the menu so picking a color survives the menu closing. */
+.es-theme-ctl { position: relative; display: inline-flex; }
+.es-color-input { position: absolute; bottom: 0; left: 50%; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 .es-scrim { position: fixed; inset: 0; z-index: 70; background: var(--es-scrim); backdrop-filter: blur(3px); }
 .es-dialog { position: fixed; z-index: 71; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 32px); overflow: auto; background: var(--es-surface); border-radius: 14px; box-shadow: 0 0 0 1px var(--es-line-strong), 0 30px 80px rgb(0 0 0 / 35%); color: var(--es-ink); }
 .es-dialog-h { padding: 18px 20px 8px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -181,7 +331,7 @@ html[data-theme="dark"] .es-seg button[aria-selected="true"] { background: #353b
 .es-tabbar a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 12px; color: var(--es-muted); text-decoration: none; }
 .es-tabbar a svg { width: 20px; height: 20px; }
 .es-tabbar a.on { color: var(--es-brand-strong); font-weight: 600; }
-.es-tabbar .es-new-c { width: 40px; height: 40px; margin-top: -18px; border-radius: 50%; background: var(--es-grad); color: var(--es-on-brand); display: grid; place-items: center; box-shadow: 0 6px 16px rgb(234 88 12 / 35%); }
+.es-tabbar .es-new-c { width: 40px; height: 40px; margin-top: -18px; border-radius: 50%; background: var(--es-grad); color: var(--es-on-brand); display: grid; place-items: center; box-shadow: 0 6px 16px color-mix(in oklab, var(--es-ramp-600) 35%, transparent); }
 
 @media (max-width: 640px) {
   .es-hdr-in { padding: 0 14px; height: 54px; gap: 12px; }

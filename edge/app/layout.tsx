@@ -11,6 +11,7 @@ import { Toaster } from "@subboost/ui/components/ui/toaster";
 import { EdgeFooter } from "@edge/components/edge-footer";
 import { EdgeHeader } from "@edge/components/edge-header";
 import { EdgeMobileNav } from "@edge/components/edge-mobile-nav";
+import { ACCENT_BOOT_SCRIPT } from "@edge/lib/accent";
 import { THEME_BOOT_SCRIPT } from "@edge/lib/theme";
 
 export const metadata: Metadata = {
@@ -28,10 +29,11 @@ export const viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    // The boot script sets data-theme and the theme class before hydration.
+    // The boot scripts set data-theme, the theme class and data-accent before hydration.
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: ACCENT_BOOT_SCRIPT }} />
       </head>
       <body className="font-sans">
         <ScrollLockStabilizer />

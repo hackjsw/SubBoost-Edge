@@ -8,8 +8,8 @@
   --card-hover: #1e2227;
   --border: #2a2f36;
   --muted: #9aa3ad;
-  --primary: #fb923c;
-  --primary-hover: #fdba74;
+  --primary: var(--es-ramp-400);
+  --primary-hover: var(--es-ramp-300);
 
   --color-dark: #111316;
   --color-dark-50: #181b1f;
@@ -17,23 +17,24 @@
   --color-dark-200: #2a2f36;
   --color-dark-300: #363c44;
 
-  --color-primary: #fb923c;
-  --color-primary-50: #fff7ed;
-  --color-primary-100: #ffedd5;
-  --color-primary-200: #fed7aa;
-  --color-primary-300: #fdba74;
-  --color-primary-400: #fb923c;
-  --color-primary-500: #f97316;
-  --color-primary-600: #ea580c;
-  --color-primary-700: #c2410c;
-  --color-primary-800: #9a3412;
-  --color-primary-900: #7c2d12;
-  --color-indigo-100: #ffedd5;
-  --color-indigo-200: #fed7aa;
-  --color-indigo-300: #fdba74;
-  --color-indigo-400: #fb923c;
-  --color-indigo-500: #f97316;
-  --color-indigo-600: #ea580c;
+  /* Accent ramp stops, defined per preset in edgesub.css. Dark maps them 1:1. */
+  --color-primary: var(--es-ramp-400);
+  --color-primary-50: var(--es-ramp-50);
+  --color-primary-100: var(--es-ramp-100);
+  --color-primary-200: var(--es-ramp-200);
+  --color-primary-300: var(--es-ramp-300);
+  --color-primary-400: var(--es-ramp-400);
+  --color-primary-500: var(--es-ramp-500);
+  --color-primary-600: var(--es-ramp-600);
+  --color-primary-700: var(--es-ramp-700);
+  --color-primary-800: var(--es-ramp-800);
+  --color-primary-900: var(--es-ramp-900);
+  --color-indigo-100: var(--es-ramp-100);
+  --color-indigo-200: var(--es-ramp-200);
+  --color-indigo-300: var(--es-ramp-300);
+  --color-indigo-400: var(--es-ramp-400);
+  --color-indigo-500: var(--es-ramp-500);
+  --color-indigo-600: var(--es-ramp-600);
 }
 
 @layer base {
@@ -58,20 +59,20 @@
 .edgesub-dark button.bg-primary-500\/20,
 .edgesub-dark a.bg-primary-500\/20,
 .edgesub-dark .btn-primary {
-  background: #f97316 !important;
+  background: var(--es-grad) !important;
   border-color: transparent !important;
-  color: #1c0a00 !important;
+  color: var(--es-on-brand) !important;
   box-shadow: none;
 }
 
 .edgesub-dark button.bg-primary-500\/20:hover,
 .edgesub-dark a.bg-primary-500\/20:hover,
 .edgesub-dark .btn-primary:hover {
-  background: #fb923c !important;
+  background: var(--es-brand) !important;
 }
 
 .edgesub-dark ::selection {
-  background: rgb(251 146 60 / 30%);
+  background: color-mix(in oklab, var(--es-brand) 30%, transparent);
 }
 
 .edgesub-dark .custom-scrollbar {
