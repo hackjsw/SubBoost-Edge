@@ -134,4 +134,42 @@ describe("subconverter failover", () => {
     expect(result["proxy-providers"]).toHaveProperty("original");
     expect(result.proxies.find((item: any) => item.name === "Target")["dialer-proxy"]).toBe("Transit");
   });
+
+  it("drops native groups the profile omits unless a chain or listener needs them", async () => {
+    const { convertClashSubscription, prepareClashTemplateSource } = await import("./subconverter");
+    const original = {
+      proxies: [
+        { name: "Relay", type: "trojan", server: "relay.example.com", port: 443, password: "relay" },
+        { name: "Target", type: "trojan", server: "target.example.com", port: 443, password: "target", "dialer-proxy": "Transit" },
+      ],
+      "proxy-groups": [
+        { name: "🚀 节点选择", type: "select", proxies: ["⚡ 自动选择", "DIRECT", "REJECT", "Relay", "Target"] },
+        { name: "⚡ 自动选择", type: "url-test", proxies: ["Relay", "Target"], url: "https://www.gstatic.com/generate_204", interval: 300 },
+        { name: "📲 电报消息", type: "select", proxies: ["🚀 节点选择", "DIRECT"] },
+        { name: "Transit", type: "select", proxies: ["Hop"] },
+        { name: "Hop", type: "select", proxies: ["Relay"] },
+      ],
+    };
+    const prepared = prepareClashTemplateSource(dump(original));
+    // A no-auto profile: its 节点选择 has no 自动选择 and it names Telegram differently.
+    const converterOutput = dump({
+      proxies: original.proxies.map(node => ({ name: node.name, type: "trojan", server: "example.com", port: 443, password: "placeholder" })),
+      "proxy-groups": [
+        { name: "🚀 节点选择", type: "select", proxies: ["DIRECT", "Relay", "Target"] },
+        { name: "📲 电报信息", type: "select", proxies: ["🚀 节点选择", "DIRECT"] },
+      ],
+      rules: ["DOMAIN-SUFFIX,t.me,📲 电报信息", "MATCH,🚀 节点选择"],
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(converterOutput)));
+    const response = await convertClashSubscription({
+      ...options,
+      originalProxies: prepared.proxies,
+      originalConfig: prepared.config,
+    });
+    expect(response.status).toBe(200);
+    const result = load(await response.text()) as Record<string, any>;
+    const names = result["proxy-groups"].map((group: { name: string }) => group.name);
+    expect(names).toEqual(["🚀 节点选择", "📲 电报信息", "Transit", "Hop"]);
+    expect(result["proxy-groups"][0].proxies).toEqual(["DIRECT", "Relay", "Target"]);
+  });
 });

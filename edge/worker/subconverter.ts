@@ -105,7 +105,11 @@ export async function convertClashSubscription({
         if (originalConfig) {
           const originalGroups = Array.isArray(originalConfig["proxy-groups"]) ? originalConfig["proxy-groups"] : [];
           const originals = new Map(originalGroups.map(group => [group.name, group]));
-          const groups = new Map([...originalGroups, ...config["proxy-groups"]].map(group => [group.name, group]));
+          // The profile decides which groups exist. Native groups are only
+          // restored below when a chain or listener depends on them; merging
+          // all of them leaked groups the profile omits (e.g. "⚡ 自动选择" in
+          // the no-auto profile) as unreferenced, non-functional tabs.
+          const groups = new Map(config["proxy-groups"].map(group => [group.name, group]));
           const pending: unknown[] = originalProxies.map(node => node["dialer-proxy"]);
           if (Array.isArray(originalConfig.listeners)) pending.push(...originalConfig.listeners.map(listener => listener?.proxy));
           const restored = new Set<string>();
