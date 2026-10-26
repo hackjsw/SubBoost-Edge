@@ -9,6 +9,7 @@
 import type { Hysteria2Node } from "@subboost/core/types/node";
 import { normalizePortsSpec, pickStablePortFromPorts } from "../port-spec";
 import { safeDecodeFormUrlEncoded, safeDecodeURIComponent } from "./url-decode";
+import { buildMihomoEchOptsFromShareValue } from "../../mihomo/ech";
 
 function parseHopIntervalParam(params: URLSearchParams, keys: string[]): number | string | undefined {
   for (const key of keys) {
@@ -134,7 +135,8 @@ export function parseHysteria2(uri: string): Hysteria2Node {
     params.get("allowInsecure") === "true" ||
     params.get("allow_insecure") === "1" ||
     params.get("allow_insecure") === "true";
-  const obfs = params.get("obfs") || undefined;
+  const obfsValue = params.get("obfs")?.trim().toLowerCase();
+  const obfs = obfsValue === "none" ? undefined : obfsValue || undefined;
   const obfsPassword =
     params.get("obfs-password") || params.get("obfs_password") || params.get("obfsPassword") || undefined;
   const portsFromQuery = ports;
@@ -161,16 +163,26 @@ export function parseHysteria2(uri: string): Hysteria2Node {
     node["skip-cert-verify"] = true;
   }
 
-  if (obfs && obfs === "salamander" && !obfsPassword) {
-    throw new Error("Hysteria2 salamander obfs 缺少 obfs-password");
+  if (obfs && !["salamander", "gecko"].includes(obfs)) {
+    throw new Error(`不支持的 Hysteria2 obfs: ${obfs}`);
   }
-
-  if (obfs && obfs === "salamander") {
+  if (obfs && !obfsPassword) throw new Error(`Hysteria2 ${obfs} obfs 缺少 obfs-password`);
+  if (obfs) {
     node.obfs = obfs;
     if (obfsPassword) {
       node["obfs-password"] = obfsPassword;
     }
   }
+
+  for (const field of ["obfs-min-packet-size", "obfs-max-packet-size"] as const) {
+    const raw = params.get(field) ?? params.get(field.replaceAll("-", "_"));
+    if (raw === null) continue;
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))) {
+      throw new Error(`Hysteria2 ${field} 需要非负整数`);
+    }
+    node[field] = Number(raw);
+  }
+  if (params.has("ech")) node["ech-opts"] = buildMihomoEchOptsFromShareValue(params.get("ech"));
 
   if (alpnRaw) {
     const list = alpnRaw

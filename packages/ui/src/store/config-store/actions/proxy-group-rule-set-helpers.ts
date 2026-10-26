@@ -1,7 +1,7 @@
 import { PROXY_GROUP_MODULES } from "@subboost/core/generator/proxy-groups";
-import { normalizePersistedRuleOrder } from "@subboost/core/generator/rules";
+import { buildModuleNameMap, normalizePersistedRuleOrder } from "@subboost/core/generator/rules";
 import { resolveProxyGroupModuleName } from "@subboost/core/proxy-group-name";
-import { normalizeProxyGroupTargetRef } from "@subboost/core/proxy-group-targets";
+import { normalizeProxyGroupRuleTarget, normalizeProxyGroupTargetRef } from "@subboost/core/proxy-group-targets";
 import { isValidRuleSetPathOrUrl, normalizeRuleSetPathInput } from "@subboost/core/rules/rule-model";
 import type {
   BuiltinRuleEdits,
@@ -11,7 +11,9 @@ import type {
   ProxyGroupTargetRef,
   RuleSetBehavior,
 } from "@subboost/core/types/config";
-import type { RuleSetDraft } from "../definitions";
+import type { ConfigState, RuleSetDraft } from "../definitions";
+
+type RuleTargetState = Pick<ConfigState, "customProxyGroups" | "proxyGroupNameOverrides">;
 
 export function normalizeRuleSetDraft(rule: RuleSetDraft): RuleSetDraft | null {
   if (!rule || typeof rule.id !== "string" || typeof rule.path !== "string") return null;
@@ -136,11 +138,12 @@ export function findBuiltinRuleEditKeyByTarget(
   edits: BuiltinRuleEdits,
   target: ProxyGroupTargetRef,
   legacyTargetName: string,
-  ruleId: string
+  ruleId: string,
+  state: RuleTargetState = { customProxyGroups: [], proxyGroupNameOverrides: {} }
 ): string | null {
   if (!target.id || !legacyTargetName || !ruleId) return null;
   for (const [key, edit] of Object.entries(edits || {})) {
-    if (!ruleTargetMatchesContainer(edit?.target, target, legacyTargetName)) continue;
+    if (!ruleTargetMatchesContainer(edit?.target, target, legacyTargetName, state)) continue;
     const parts = key.split(":");
     if (parts.length !== 3 || parts[0] !== "module") continue;
     if (parts[2] === ruleId) return key;
@@ -167,9 +170,14 @@ export function appendUniqueCustomRuleSets(
 export function ruleTargetMatchesContainer(
   target: ProxyGroupRuleTarget | undefined,
   container: ProxyGroupTargetRef,
-  legacyTargetName: string
+  legacyTargetName: string,
+  state: RuleTargetState = { customProxyGroups: [], proxyGroupNameOverrides: {} }
 ): boolean {
-  const ref = normalizeProxyGroupTargetRef(target);
-  if (ref) return ref.kind === container.kind && ref.id === container.id;
-  return typeof target === "string" && target.trim() === legacyTargetName.trim();
+  const normalized = normalizeProxyGroupRuleTarget(target, {
+    moduleNames: buildModuleNameMap(state.proxyGroupNameOverrides),
+    customProxyGroups: state.customProxyGroups,
+    literalTargetNames: [legacyTargetName],
+  });
+  if (typeof normalized === "string") return normalized === legacyTargetName.trim();
+  return normalized?.kind === container.kind && normalized.id === container.id;
 }

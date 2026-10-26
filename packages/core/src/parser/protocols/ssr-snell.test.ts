@@ -115,9 +115,6 @@ describe("SSR and Snell parsers", () => {
       udp: false,
       reuse: true,
       tfo: true,
-      "shadow-tls-version": 2,
-      "shadow-tls-sni": "sni.example.com",
-      "shadow-tls-password": "shadow",
     });
     expect(parseSnell("snell://snell-query.example.com:443?psk=query-secret")).toMatchObject({
       psk: "query-secret",

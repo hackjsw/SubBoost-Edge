@@ -4,6 +4,7 @@ import { parseClashYaml, parseSubscription } from "@subboost/core/parser";
 import { generateClashYaml } from "@subboost/core/generator";
 import { validateSubscriptionNodeList } from "./crud";
 import { parsePlatformConfigContent } from "@subboost/core/parser/platform/parse-platform-config";
+import { generateKeyPairSync } from "node:crypto";
 
 const endpoint = "server: local.subboost.test, port: '443'";
 const key = "A".repeat(43) + "=";
@@ -55,6 +56,14 @@ describe("protocol import through persistence and generation", () => {
       expect(result.proxies[0].password).toBe(password);
     }
   });
+
+  it.each(["+.5", "-.5", "+.0", "-.0", "+.5e+2", "-.5E-1"])(
+    "preserves leading-dot string credentials through import, save and generation: %s", (password) => {
+      const result = generated(`proxies: [{name: demo, type: trojan, ${endpoint}, password: ${password}}]`);
+      expect(result.proxies).toHaveLength(1);
+      expect(result.proxies[0].password).toBe(password);
+    },
+  );
 
   it.each([
     ["# subscription\n", "type:"], ["---\n", "type:"],
@@ -153,5 +162,82 @@ describe("protocol import through persistence and generation", () => {
     { type: "anytls", server: "local.subboost.test", port: 443, password: 9007199254740992 },
   ])("rejects invalid nodes with an index before any persistence", (bad) => {
     expect(() => validateSubscriptionNodeList([{ name: "good", type: "reject" }, { name: "bad", ...bad }])).toThrow(/#2/);
+  });
+
+  it("preserves Reality flags and independent XHTTP settings through save/load", () => {
+    const uuid = "11111111-1111-4111-8111-111111111111";
+    const extra = { noGRPCHeader: false, scMaxEachPostBytes: "100000-200000", xmux: { maxConnections: "2-4" } };
+    const link = `vless://${uuid}@local.subboost.test:443?security=reality&pbk=${"A".repeat(43)}&support-x25519mlkem768=false&type=xhttp&extra=${encodeURIComponent(JSON.stringify(extra))}`;
+    expect(generated(link).proxies[0]).toMatchObject({
+      "reality-opts": { "support-x25519mlkem768": false },
+      "xhttp-opts": { "no-grpc-header": false, "sc-max-each-post-bytes": "100000-200000", "reuse-settings": { "max-connections": "2-4" } },
+    });
+    const parsed = parseSubscription(link);
+    const persisted = JSON.parse(JSON.stringify(validateSubscriptionNodeList(parsed.nodes)));
+    const reloaded = validateSubscriptionNodeList(persisted);
+    expect(yaml.load(generateClashYaml({ nodes: reloaded, userConfig: { dnsYaml: "" } }))).toEqual(
+      yaml.load(generateClashYaml({ nodes: parsed.nodes, userConfig: { dnsYaml: "" } })));
+  });
+
+  it("retains Gecko, ECH and packet sizes for Hysteria2", () => {
+    expect(generated("hy2://demo@local.subboost.test:443?obfs=gecko&obfs-password=padding&obfs-min-packet-size=100&obfs-max-packet-size=200&ech=QUJDRA%3D%3D").proxies[0])
+      .toMatchObject({ obfs: "gecko", "obfs-password": "padding", "obfs-min-packet-size": 100,
+        "obfs-max-packet-size": 200, "ech-opts": { enable: true, config: "QUJDRA==" } });
+    for (const query of ["obfs=gecko", "obfs=unknown&obfs-password=demo", "obfs=gecko&obfs-password=demo&obfs-min-packet-size=12bad"]) {
+      expect(parseSubscription(`hy2://demo@local.subboost.test?${query}`).totalFailed).toBe(1);
+    }
+  });
+
+  it.each(["tuic://token", "hysteria://"])("separates protocol fast-open from TCP tfo: %s", prefix => {
+    const authority = prefix.endsWith("//") ? "local.subboost.test" : `${prefix.split("://")[1]}@local.subboost.test`;
+    const scheme = prefix.split("://")[0];
+    for (const flag of [true, false]) {
+      const node = generated(`${scheme}://${authority}:443?auth=demo&fast-open=${flag}&tfo=${!flag}`).proxies[0];
+      expect(node["fast-open"]).toBe(flag);
+      expect(node.tfo).toBe(!flag);
+    }
+  });
+
+  it("normalizes WireGuard URI, platform and saved aliases without replacing canonical zero", () => {
+    const uri = `wg://${encodeURIComponent(key)}@local.subboost.test:51820?publickey=${encodeURIComponent(key)}&reserved=U4An&keepalive=25`;
+    expect(generated(uri).proxies[0]).toMatchObject({ reserved: [83, 128, 39], "persistent-keepalive": 25 });
+    const platform = `[WireGuard test]\nprivate-key = ${key}\nself-ip = 203.0.113.2\nkeepalive = 25\npeer = (public-key = ${key}, endpoint = "local.subboost.test:443")\n[Proxy]\nWG = wireguard, section-name=test`;
+    expect(generated(platform).proxies[0]).toMatchObject({ "persistent-keepalive": 25 });
+    const saved = [{ name: "wg", type: "wireguard", "private-key": key, ip: "203.0.113.2", keepalive: 25,
+      "persistent-keepalive": 0, peers: [{ server: "local.subboost.test", port: 443, "public-key": key, reserved: "U4An" }] }];
+    const nodes = validateSubscriptionNodeList(saved);
+    const result = yaml.load(generateClashYaml({ nodes, userConfig: { dnsYaml: "" } })) as { proxies: Record<string, unknown>[] };
+    expect(result.proxies[0]).toMatchObject({ "persistent-keepalive": 0, peers: [{ reserved: [83, 128, 39] }] });
+    expect(result.proxies[0]).not.toHaveProperty("keepalive");
+  });
+
+  it("maps Snell ShadowTLS aliases and preserves an explicit standard structure", () => {
+    expect(generated("snell://demo@local.subboost.test:443?version=3&shadow-tls-version=3&shadow-tls-sni=local.subboost.test&shadow-tls-password=padding").proxies[0])
+      .toMatchObject({ "obfs-opts": { mode: "shadow-tls", version: 3, host: "local.subboost.test", password: "padding" } });
+    const source = { name: "snell", type: "snell", server: "local.subboost.test", port: 443, psk: "demo",
+      "shadow-tls-password": "legacy", "obfs-opts": { mode: "shadow-tls", version: 3, password: "canonical" } };
+    const final = generated(yaml.dump({ proxies: [source] })).proxies[0];
+    expect(final["obfs-opts"]).toEqual(source["obfs-opts"]);
+    expect(final).not.toHaveProperty("shadow-tls-password");
+  });
+
+  it.each(["nistp256", "nistp384", "nistp521"])("preserves valid synthetic SSH ECDSA %s host keys", curve => {
+    const namedCurve = { nistp256: "prime256v1", nistp384: "secp384r1", nistp521: "secp521r1" }[curve]!;
+    const jwk = generateKeyPairSync("ec", { namedCurve }).publicKey.export({ format: "jwk" });
+    const sshString = (value: Buffer | string) => {
+      const data = typeof value === "string" ? Buffer.from(value) : value;
+      const length = Buffer.alloc(4); length.writeUInt32BE(data.length);
+      return Buffer.concat([length, data]);
+    };
+    const kind = `ecdsa-sha2-${curve}`;
+    const point = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x!, "base64url"), Buffer.from(jwk.y!, "base64url")]);
+    const hostKey = `${kind} ${Buffer.concat([sshString(kind), sshString(curve), sshString(point)]).toString("base64")}`;
+    const source = { name: "ssh", type: "ssh", server: "local.subboost.test", port: 22, username: "demo", password: "demo", "host-key": [hostKey] };
+    expect(generated(yaml.dump({ proxies: [source] })).proxies[0]["host-key"]).toEqual([hostKey]);
+  });
+
+  it("does not downgrade malformed explicit SSH host-key input to unchecked SSH", () => {
+    const source = { name: "ssh", type: "ssh", server: "local.subboost.test", port: 22, password: "demo", "host-key": ["invalid"] };
+    expect(generated(yaml.dump({ proxies: [source] })).proxies ?? []).toEqual([]);
   });
 });

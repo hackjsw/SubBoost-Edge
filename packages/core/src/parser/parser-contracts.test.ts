@@ -90,7 +90,7 @@ describe("parser public contracts", () => {
       port: 443,
       uuid: "11111111-1111-4111-8111-111111111111",
       password: "secret",
-      tfo: true,
+      "fast-open": true,
       "reduce-rtt": true,
       "congestion-controller": "bbr",
       "udp-relay-mode": "native",
@@ -350,7 +350,7 @@ Direct Policy = direct
       ports: "1000-2000",
       obfs: "mask",
       _obfs: "salamander",
-      tfo: true,
+      "fast-open": true,
     });
   });
 

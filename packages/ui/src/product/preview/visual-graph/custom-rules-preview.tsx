@@ -13,20 +13,23 @@ export function CustomRulesPreview({
   ruleSets = [],
   moduleNames,
   customProxyGroups,
+  literalTargetNames,
 }: {
   customRules: CustomRule[];
   ruleSets?: CustomRoutingRuleSetItem[];
   moduleNames: Record<string, string>;
   customProxyGroups: CustomProxyGroup[];
+  literalTargetNames?: readonly string[];
 }) {
   const resolveTargetName = React.useCallback(
     (target: CustomRule["target"]) =>
       resolveProxyGroupTargetName(target, {
         moduleNames,
         customProxyGroups,
+        literalTargetNames,
         fallbackTarget: UNAVAILABLE_TARGET_LABEL,
       }),
-    [customProxyGroups, moduleNames],
+    [customProxyGroups, moduleNames, literalTargetNames],
   );
 
   const items = React.useMemo(

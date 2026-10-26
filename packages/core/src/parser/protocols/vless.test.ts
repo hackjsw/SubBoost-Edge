@@ -79,7 +79,7 @@ describe("parseVLESS", () => {
 
     expect(
       parseVLESS(
-        `vless://${UUID}@xhttp-alias.example.com:443?security=tls&type=xhttp&xhttpPath=/alias&xhttpHost=alias.example.com&headers=%7B%22bad%22%3A1%7D&noGrpcHeader=off&scMaxEachPostBytes=bad&maxConnections=8&cMaxReuseTimes=3&hMaxRequestTimes=4&hMaxReusableSecs=30`
+        `vless://${UUID}@xhttp-alias.example.com:443?security=tls&type=xhttp&xhttpPath=/alias&xhttpHost=alias.example.com&headers=%7B%22bad%22%3A1%7D&noGrpcHeader=off&maxConnections=8&cMaxReuseTimes=3&hMaxRequestTimes=4&hMaxReusableSecs=30`
       )
     ).toMatchObject({
       network: "xhttp",

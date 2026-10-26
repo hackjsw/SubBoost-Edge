@@ -67,6 +67,10 @@ export function ProxyGroupsRulesLibrary() {
     () => customProxyGroups.filter((group) => group.enabled !== false),
     [customProxyGroups],
   );
+  const literalTargetNames = React.useMemo(
+    () => customProxyGroups.map((group) => group.name),
+    [customProxyGroups],
+  );
   const moduleNames = React.useMemo(
     () =>
       Object.fromEntries(
@@ -146,6 +150,7 @@ export function ProxyGroupsRulesLibrary() {
                 ? resolveProxyGroupTargetName(builtinTargetName, {
                     moduleNames,
                     customProxyGroups: activeCustomProxyGroups,
+                    literalTargetNames,
                     fallbackTarget: resolveModuleFullName(builtinSourceModule),
                   })
                 : "";
@@ -160,6 +165,7 @@ export function ProxyGroupsRulesLibrary() {
                       resolveProxyGroupTargetName(customRuleSet.target, {
                         moduleNames,
                         customProxyGroups: activeCustomProxyGroups,
+                        literalTargetNames,
                       }),
                   )
                 : null;
@@ -476,6 +482,7 @@ export function ProxyGroupsRulesLibrary() {
                             ? resolveProxyGroupTargetName(edit.target, {
                                 moduleNames,
                                 customProxyGroups: activeCustomProxyGroups,
+                                literalTargetNames,
                                 fallbackTarget: groupName,
                               })
                             : groupName,
@@ -490,6 +497,7 @@ export function ProxyGroupsRulesLibrary() {
                         resolveProxyGroupTargetName(ruleSet.target, {
                           moduleNames,
                           customProxyGroups: activeCustomProxyGroups,
+                          literalTargetNames,
                         }),
                       );
                     }

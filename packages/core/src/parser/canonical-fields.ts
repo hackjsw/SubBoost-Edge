@@ -1,5 +1,6 @@
 import type { ParsedNode } from "@subboost/core/types/node";
 import { normalizeCertificateFingerprint } from "@subboost/core/mihomo/certificate-fingerprint";
+import { normalizeProtocolFields } from "../mihomo/protocol-fields";
 
 type FieldPath = readonly string[];
 
@@ -40,6 +41,11 @@ export const PROTOCOL_FIELD_ALIAS_RULES: readonly AliasRule[] = [
       ["short_id"],
       ["shortid"],
     ],
+  },
+  {
+    types: ["vless"],
+    canonical: ["reality-opts", "support-x25519mlkem768"],
+    aliases: [["reality-opts", "supportX25519MLKEM768"], ["reality-opts", "support_x25519mlkem768"]],
   },
   {
     types: CLIENT_FINGERPRINT_TYPES,
@@ -206,5 +212,5 @@ export function canonicalizeParsedNode<T extends ParsedNode | Record<string, unk
 
   canonicalizeSkipCertVerify(out);
 
-  return out as T;
+  return normalizeProtocolFields(out) as T;
 }

@@ -1,5 +1,6 @@
 import type { ParsedNode } from "@subboost/core/types/node";
 import { parseUrlWithNeutralScheme, safeDecodeFormUrlEncoded, safeDecodeURIComponent } from "./url-decode";
+import { normalizeProtocolFields } from "../../mihomo/protocol-fields";
 
 function parseBoolish(value: string | null): boolean | undefined {
   if (!value) return undefined;
@@ -74,5 +75,5 @@ export function parseSnell(uri: string): ParsedNode {
   if (params.get("shadow-tls-sni")) node["shadow-tls-sni"] = params.get("shadow-tls-sni");
   if (params.get("shadow-tls-password")) node["shadow-tls-password"] = params.get("shadow-tls-password");
 
-  return node as unknown as ParsedNode;
+  return normalizeProtocolFields(node) as unknown as ParsedNode;
 }

@@ -4,11 +4,33 @@ import {
   getProxyGroupTargetKey,
   isProxyGroupTargetRef,
   normalizeProxyGroupTargetRef,
+  normalizeProxyGroupRuleTarget,
+  parseProxyGroupTargetValue,
+  isDisabledCustomProxyGroupTarget,
   resolveProxyGroupTargetName,
   ruleTargetMatchesName,
 } from "./proxy-group-targets";
 
 describe("proxy group target helpers", () => {
+  it("parses shorthand references without changing literal names", () => {
+    const options = { moduleNames: { auto: "Auto" }, customProxyGroups: [
+      { id: "media", name: "Media", emoji: "", groupType: "select" as const },
+    ], fallbackTarget: "DIRECT" };
+    expect(parseProxyGroupTargetValue(" module: auto ")).toEqual({ kind: "module", id: "auto" });
+    expect(parseProxyGroupTargetValue("custom:media")).toEqual({ kind: "custom", id: "media" });
+    for (const value of ["module:", "filtered:media", "Proxy"]) expect(parseProxyGroupTargetValue(value)).toBeNull();
+    expect(resolveProxyGroupTargetName("module:auto", options)).toBe("Auto");
+    expect(resolveProxyGroupTargetName("custom:media", options)).toBe("Media");
+    expect(resolveProxyGroupTargetName("module:missing", options)).toBe("DIRECT");
+    expect(resolveProxyGroupTargetName("custom:missing", options)).toBe("DIRECT");
+    expect(resolveProxyGroupTargetName("DIRECT", options)).toBe("DIRECT");
+    expect(normalizeProxyGroupRuleTarget(" ", options)).toBeNull();
+    expect(normalizeProxyGroupRuleTarget("module:auto", { ...options, moduleNames: { auto: "module:auto" } }))
+      .toBe("module:auto");
+    expect(isDisabledCustomProxyGroupTarget("custom:media", {
+      ...options, customProxyGroups: [{ ...options.customProxyGroups[0], enabled: false }],
+    })).toBe(true);
+  });
   it("validates and normalizes target refs", () => {
     expect(isProxyGroupTargetRef({ kind: "module", id: "auto" })).toBe(true);
     expect(isProxyGroupTargetRef({ kind: "custom", id: "media" })).toBe(true);

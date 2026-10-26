@@ -1,5 +1,6 @@
 import type { ParsedNode } from "@subboost/core/types/node";
 import { parseUrlWithNeutralScheme, safeDecodeFormUrlEncoded, safeDecodeURIComponent } from "./url-decode";
+import { normalizeProtocolFields, normalizeWireGuardReserved } from "../../mihomo/protocol-fields";
 
 function parseBoolish(value: string | null): boolean | undefined {
   if (!value) return undefined;
@@ -7,14 +8,6 @@ function parseBoolish(value: string | null): boolean | undefined {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return undefined;
-}
-
-function parseReserved(raw: string): number[] | undefined {
-  const values = raw
-    .split(",")
-    .map((item) => Number.parseInt(item.trim(), 10))
-    .filter((item) => Number.isInteger(item));
-  return values.length === 3 ? values : undefined;
 }
 
 function assignWireGuardAddress(node: Record<string, unknown>, raw: string) {
@@ -72,7 +65,7 @@ export function parseWireGuard(uri: string): ParsedNode {
     if (!key || !value) continue;
 
     if (key === "reserved") {
-      const reserved = parseReserved(value);
+      const reserved = normalizeWireGuardReserved(value);
       if (reserved) node.reserved = reserved;
       continue;
     }
@@ -110,5 +103,5 @@ export function parseWireGuard(uri: string): ParsedNode {
     }
   }
 
-  return node as unknown as ParsedNode;
+  return normalizeProtocolFields(node) as unknown as ParsedNode;
 }

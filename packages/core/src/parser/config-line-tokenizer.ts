@@ -168,7 +168,11 @@ export function applyCommonNodeParams(node: Record<string, unknown>, params: Rec
 
   const fastOpen = parseBooleanish(params["fast-open"] || params.tfo || params.fastopen);
   if (fastOpen !== undefined) {
-    node.tfo = fastOpen;
+    if (node.type === "tuic" || node.type === "hysteria") {
+      node["fast-open"] = fastOpen;
+      const tfo = parseBooleanish(params.tfo);
+      if (tfo !== undefined) node.tfo = tfo;
+    } else node.tfo = fastOpen;
   }
 
   const shadowTlsVersion = parseIntParam(params["shadow-tls-version"] || params["shadow_tls_version"]);

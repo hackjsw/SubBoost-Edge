@@ -37,7 +37,7 @@ const PROXY_FIELD_ORDER_PROTOCOL: Partial<Record<KnownNodeType, string[]>> = {
     "ip",
     "ipv6",
     "mtu",
-    "keepalive",
+    "persistent-keepalive",
     "reserved",
     "dns",
     "allowed-ips",

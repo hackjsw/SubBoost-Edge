@@ -69,7 +69,9 @@ export function parseHysteria(uri: string): ParsedNode {
     node["_obfs"] = obfs;
   }
 
-  const tfo = parseBoolish(params.get("fast-open"));
+  const fastOpen = parseBoolish(params.get("fast-open") ?? params.get("fast_open") ?? params.get("fastOpen"));
+  if (fastOpen !== undefined) node["fast-open"] = fastOpen;
+  const tfo = parseBoolish(params.get("tfo"));
   if (tfo !== undefined) node.tfo = tfo;
 
   return node as unknown as ParsedNode;

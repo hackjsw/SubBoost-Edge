@@ -237,7 +237,7 @@ export function createProxyGroupActions(
         const targetRef = resolveRuleSetContainerTargetRef(id, state.customProxyGroups);
         if (!target || !targetRef) return state;
         const index = state.customRuleSets.findIndex(
-          (item) => item.id === rid && ruleTargetMatchesContainer(item.target, targetRef, target),
+          (item) => item.id === rid && ruleTargetMatchesContainer(item.target, targetRef, target, state),
         );
         if (index < 0) return state;
 
@@ -288,7 +288,7 @@ export function createProxyGroupActions(
         );
         const targetRef = resolveRuleSetContainerTargetRef(id, state.customProxyGroups);
         if (!target || !targetRef) return state;
-        const movedBuiltinKey = findBuiltinRuleEditKeyByTarget(state.builtinRuleEdits, targetRef, target, rid);
+        const movedBuiltinKey = findBuiltinRuleEditKeyByTarget(state.builtinRuleEdits, targetRef, target, rid, state);
         if (movedBuiltinKey) {
           const nextBuiltinRuleEdits = updateBuiltinRuleEdit(state.builtinRuleEdits, movedBuiltinKey, { enabled: false });
           return {
@@ -300,7 +300,7 @@ export function createProxyGroupActions(
           };
         }
         const nextCustomRuleSets = state.customRuleSets.filter(
-          (ruleSet) => !(ruleSet.id === rid && ruleTargetMatchesContainer(ruleSet.target, targetRef, target))
+          (ruleSet) => !(ruleSet.id === rid && ruleTargetMatchesContainer(ruleSet.target, targetRef, target, state))
         );
         if (nextCustomRuleSets.length === state.customRuleSets.length) return state;
         return {
@@ -348,7 +348,7 @@ export function createProxyGroupActions(
 
         const customRuleSetIndex = state.customRuleSets.findIndex(
           (ruleSet) =>
-            ruleSet.id === rid && ruleTargetMatchesContainer(ruleSet.target, sourceTargetRef, sourceTarget)
+            ruleSet.id === rid && ruleTargetMatchesContainer(ruleSet.target, sourceTargetRef, sourceTarget, state)
         );
         if (customRuleSetIndex >= 0) {
           const targetModule = target.kind === "module"
@@ -368,7 +368,7 @@ export function createProxyGroupActions(
               (ruleSet, index) =>
                 index !== customRuleSetIndex &&
                 ruleSet.id === rid &&
-                ruleTargetMatchesContainer(ruleSet.target, target, targetName)
+                ruleTargetMatchesContainer(ruleSet.target, target, targetName, state)
             )
           ) {
             nextCustomRuleSets = state.customRuleSets.filter((_, index) => index !== customRuleSetIndex);
@@ -395,6 +395,7 @@ export function createProxyGroupActions(
           sourceTargetRef,
           sourceTarget,
           rid,
+          state,
         );
         if (movedBuiltinKey) {
           const nextBuiltinRuleEdits = updateBuiltinRuleEdit(state.builtinRuleEdits, movedBuiltinKey, {

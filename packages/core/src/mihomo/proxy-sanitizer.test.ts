@@ -82,9 +82,6 @@ describe("Mihomo proxy sanitizer", () => {
             enable: true,
             config: Buffer.from("ech").toString("base64"),
           },
-          "reality-opts": {
-            "public-key": "",
-          },
         },
       },
     });

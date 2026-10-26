@@ -16,6 +16,15 @@ function parseBoolParam(params: URLSearchParams, keys: string[]): boolean {
   });
 }
 
+function parseOptionalBool(params: URLSearchParams, keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const raw = params.get(key)?.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(raw ?? "")) return true;
+    if (["0", "false", "no", "off"].includes(raw ?? "")) return false;
+  }
+  return undefined;
+}
+
 function parseIntParam(params: URLSearchParams, keys: string[]): number | undefined {
   for (const key of keys) {
     const raw = params.get(key);
@@ -90,9 +99,9 @@ export function parseTuic(uri: string): TuicNode {
     "disable-sni",
     "disableSni",
   ]);
-  const fastOpen = parseBoolParam(params, [
-    "fast_open",
+  const fastOpen = parseOptionalBool(params, [
     "fast-open",
+    "fast_open",
     "fastOpen",
     "tfo",
   ]);
@@ -172,9 +181,9 @@ export function parseTuic(uri: string): TuicNode {
     node["reduce-rtt"] = true;
   }
 
-  if (fastOpen) {
-    node.tfo = true;
-  }
+  if (fastOpen !== undefined) node["fast-open"] = fastOpen;
+  const tfo = parseOptionalBool(params, ["tfo"]);
+  if (tfo !== undefined) node.tfo = tfo;
 
   if (allowInsecure) {
     node["skip-cert-verify"] = true;

@@ -95,6 +95,10 @@ export function VisualGraph() {
     () => customProxyGroups.filter((group) => group && group.enabled !== false),
     [customProxyGroups],
   );
+  const literalTargetNames = React.useMemo(
+    () => customProxyGroups.flatMap((group) => typeof group?.name === "string" ? [group.name] : []),
+    [customProxyGroups],
+  );
 
   React.useEffect(() => {
     const el = containerRef.current;
@@ -189,6 +193,7 @@ export function VisualGraph() {
                 ? resolveProxyGroupTargetName(edit.target, {
                     moduleNames,
                     customProxyGroups: activeCustomProxyGroups,
+                    literalTargetNames,
                     fallbackTarget: moduleTarget,
                   })
                 : moduleTarget;
@@ -205,6 +210,7 @@ export function VisualGraph() {
                 resolveProxyGroupTargetName(ruleSet.target, {
                   moduleNames,
                   customProxyGroups: activeCustomProxyGroups,
+                  literalTargetNames,
                 }) === moduleTarget,
             )
             .map((ruleSet) => ({
@@ -217,6 +223,7 @@ export function VisualGraph() {
               ? resolveProxyGroupTargetName(edit.target, {
                   moduleNames,
                   customProxyGroups: activeCustomProxyGroups,
+                  literalTargetNames,
                 })
               : "";
             if (edit?.enabled === false || target !== moduleTarget) return [];
@@ -256,6 +263,7 @@ export function VisualGraph() {
               resolveProxyGroupTargetName(ruleSet.target, {
                 moduleNames,
                 customProxyGroups: activeCustomProxyGroups,
+                literalTargetNames,
               }) === groupName,
           )
           .map((r) => ({
@@ -347,6 +355,7 @@ export function VisualGraph() {
     proxyGroupAdvanced,
     proxyGroupOrder,
     moduleNames,
+    literalTargetNames,
     resolveModuleName,
   ]);
 
@@ -366,8 +375,9 @@ export function VisualGraph() {
         customRuleSets,
         customProxyGroups: activeCustomProxyGroups,
         proxyGroupNameOverrides,
+        literalTargetNames,
       }),
-    [activeCustomProxyGroups, customRuleSets, proxyGroupNameOverrides],
+    [activeCustomProxyGroups, customRuleSets, proxyGroupNameOverrides, literalTargetNames],
   );
 
   // 注意：`containerRef` 有 `p-4`，Safari 上用 `clientWidth` 会把 padding 算进去，导致阈值判断偏大；
@@ -527,6 +537,7 @@ export function VisualGraph() {
         ruleSets={customRoutingRuleSets}
         moduleNames={moduleNames}
         customProxyGroups={activeCustomProxyGroups}
+        literalTargetNames={literalTargetNames}
       />
     </div>
   );

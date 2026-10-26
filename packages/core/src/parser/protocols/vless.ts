@@ -13,6 +13,7 @@ import { normalizeRealityShortId } from "@subboost/core/mihomo/reality";
 import { splitWsPathEarlyData } from "../ws-early-data";
 import { parseUrlWithNeutralScheme, safeDecodeFormUrlEncoded, safeDecodeURIComponent } from "./url-decode";
 import { parseJsonObject, parseJsonStringMap } from "../json-utils";
+import { mergeXhttpExtra } from "./vless-xhttp";
 
 function parseBoolish(value: string | null | undefined): boolean | undefined {
   if (!value) return undefined;
@@ -114,7 +115,7 @@ function buildXhttpOptsFromQuery(params: URLSearchParams, fallbackPath: string, 
     params,
     ["sc-max-each-post-bytes", "sc_max_each_post_bytes", "scMaxEachPostBytes"]
   );
-  const scMaxEachPostBytes = scMaxEachPostBytesRaw ? Number.parseInt(scMaxEachPostBytesRaw, 10) : undefined;
+  const scMaxEachPostBytes = scMaxEachPostBytesRaw || undefined;
 
   const reuseSettings: XHttpReuseSettings = {};
   const reuseSettingKeys: Array<[keyof XHttpReuseSettings, string[]]> = [
@@ -139,17 +140,17 @@ function buildXhttpOptsFromQuery(params: URLSearchParams, fallbackPath: string, 
   );
   if (downloadHeaders) downloadSettings.headers = downloadHeaders;
 
-  return {
+  return mergeXhttpExtra(params, {
     path,
     ...(host ? { host } : {}),
     ...(mode ? { mode } : {}),
     ...(headers ? { headers } : {}),
     ...(noGrpcHeader !== undefined ? { "no-grpc-header": noGrpcHeader } : {}),
     ...(xPaddingBytes ? { "x-padding-bytes": xPaddingBytes } : {}),
-    ...(Number.isFinite(scMaxEachPostBytes) ? { "sc-max-each-post-bytes": scMaxEachPostBytes } : {}),
+    ...(scMaxEachPostBytes !== undefined ? { "sc-max-each-post-bytes": scMaxEachPostBytes } : {}),
     ...(Object.keys(reuseSettings).length > 0 ? { "reuse-settings": reuseSettings } : {}),
     ...(Object.keys(downloadSettings).length > 0 ? { "download-settings": downloadSettings } : {}),
-  };
+  });
 }
 
 function isDigitString(value: string): boolean {
@@ -352,9 +353,13 @@ export function parseVLESS(uri: string): VLESSNode {
 
   if (security === "reality") {
     const normalizedShortId = normalizeRealityShortId(sid);
+    const supportX25519Mlkem768 = parseBoolish(pickQueryValue(params, [
+      "support-x25519mlkem768", "support_x25519mlkem768", "supportX25519MLKEM768",
+    ]));
     const realityOpts: Record<string, unknown> = {
       ...(pbk ? { "public-key": pbk } : {}),
       ...(normalizedShortId ? { "short-id": normalizedShortId } : {}),
+      ...(pbk && supportX25519Mlkem768 !== undefined ? { "support-x25519mlkem768": supportX25519Mlkem768 } : {}),
       ...(spiderX ? { "_spider-x": spiderX } : {}),
     };
     if (Object.keys(realityOpts).length > 0) {

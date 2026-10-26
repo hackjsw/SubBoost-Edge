@@ -209,7 +209,7 @@ describe("additional protocol parser contracts", () => {
       reserved: [1, 2, 3],
       mtu: 1280,
       udp: false,
-      keepalive: "25",
+      "persistent-keepalive": 25,
     });
     expect(() => parseWireGuard("http://bad")).toThrow("无效的 WireGuard 链接");
     expect(() => parseWireGuard("wireguard://@wg.example.com:51820")).toThrow("WireGuard 配置缺少必要字段");

@@ -23,7 +23,7 @@ describe("Hysteria protocol parsers", () => {
       ports: "1000-2000",
       obfs: "mask",
       _obfs: "salamander",
-      tfo: false,
+      "fast-open": false,
     });
 
     expect(parseHysteria("hysteria://hy.example.com:8443?password=secret&insecure=0")).toMatchObject({

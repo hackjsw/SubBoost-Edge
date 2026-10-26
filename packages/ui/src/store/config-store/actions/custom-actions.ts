@@ -171,15 +171,15 @@ export function createCustomActions(
         const removedGroupName = removedGroup?.name?.trim() || "";
         const removedTarget = { kind: "custom" as const, id };
         const nextCustomRules = state.customRules.filter(
-          (rule) => !ruleTargetMatchesContainer(rule.target, removedTarget, removedGroupName),
+          (rule) => !ruleTargetMatchesContainer(rule.target, removedTarget, removedGroupName, state),
         );
         const nextCustomRuleSets = state.customRuleSets.filter(
-          (ruleSet) => !ruleTargetMatchesContainer(ruleSet.target, removedTarget, removedGroupName),
+          (ruleSet) => !ruleTargetMatchesContainer(ruleSet.target, removedTarget, removedGroupName, state),
         );
         const nextBuiltinRuleEdits = compactBuiltinRuleEdits(
           Object.fromEntries(
             Object.entries(state.builtinRuleEdits || {}).map(([key, edit]) => {
-              if (!ruleTargetMatchesContainer(edit?.target, removedTarget, removedGroupName)) return [key, edit];
+              if (!ruleTargetMatchesContainer(edit?.target, removedTarget, removedGroupName, state)) return [key, edit];
               const { target: _removedTarget, ...rest } = edit;
               return [key, rest];
             }),
