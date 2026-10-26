@@ -1,5 +1,5 @@
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const publicRoot = path.resolve(__dirname, "../..");
@@ -11,7 +11,8 @@ const POSIX_BACKUP_MODE_ASSERTIONS = process.platform === "win32"
       [ "$unsafe_dirs" = "0" ]`;
 
 function runBash(script: string) {
-  return spawnSync("bash", ["-lc", BASH_NON_INTERACTIVE_COMMAND], {
+  // spawnSync honors `detached` (new session, no controlling terminal), but @types/node omits it.
+  const options: SpawnSyncOptionsWithStringEncoding & { detached: boolean } = {
     cwd: publicRoot,
     encoding: "utf8",
     input: script,
@@ -21,7 +22,8 @@ function runBash(script: string) {
       ...process.env,
       LC_ALL: "C.UTF-8",
     },
-  });
+  };
+  return spawnSync("bash", ["-lc", BASH_NON_INTERACTIVE_COMMAND], options);
 }
 
 describe("self-host shell scripts", () => {

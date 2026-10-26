@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runLocalSubscriptionAutoUpdateCron } from "@local/lib/auto-update-service";
@@ -31,15 +32,15 @@ vi.mock("@local/lib/job-lease", () => ({
   JobLeaseLostError: leaseMocks.JobLeaseLostError,
 }));
 
-function cronRequest(secret?: string): Request {
-  return new Request("http://local.test/api/cron/update-subscriptions", {
+function cronRequest(secret?: string): NextRequest {
+  return new NextRequest("http://local.test/api/cron/update-subscriptions", {
     method: "POST",
     headers: secret ? { Authorization: `Bearer ${secret}` } : {},
   });
 }
 
-function cronRequestWithAuthorization(authorization: string): Request {
-  return new Request("http://local.test/api/cron/update-subscriptions", {
+function cronRequestWithAuthorization(authorization: string): NextRequest {
+  return new NextRequest("http://local.test/api/cron/update-subscriptions", {
     method: "POST",
     headers: { Authorization: authorization },
   });
@@ -153,7 +154,7 @@ describe("local cron routes", () => {
 
   it("runs the rule index refresh cron when authorized", async () => {
     const response = await updateRuleIndexRoute.POST(
-      new Request("http://local.test/api/cron/update-rule-index", {
+      new NextRequest("http://local.test/api/cron/update-rule-index", {
         method: "POST",
         headers: { Authorization: "bearer secret-1" },
       })

@@ -19,6 +19,7 @@
     ],
     "paths": {
       "@/*": ["./local/src/*"],
+      "@local/*": ["./local/src/*"],
       "@subboost/core": ["./packages/core/src/index.ts"],
       "@subboost/core/*": ["./packages/core/src/*"],
       "@subboost/server-core": ["./packages/server-core/src/index.ts"],

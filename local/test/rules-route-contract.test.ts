@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RuleIndexUnavailableError } from "@subboost/server-core/rules";
 
@@ -32,7 +33,7 @@ describe("local rule routes", () => {
       source: "remote",
     } as never);
 
-    const response = await searchRoute.GET(new Request("http://local.test/api/rules/search?keyword=openai"));
+    const response = await searchRoute.GET(new NextRequest("http://local.test/api/rules/search?keyword=openai"));
     expect(response.status).toBe(200);
     expect(await readJson(response)).toMatchObject({
       source: "remote",
@@ -50,7 +51,7 @@ describe("local rule routes", () => {
   it("fails closed when the shared rule index is unavailable", async () => {
     vi.mocked(searchRules).mockRejectedValue(new RuleIndexUnavailableError());
 
-    const response = await searchRoute.GET(new Request("http://local.test/api/rules/search?keyword=bard"));
+    const response = await searchRoute.GET(new NextRequest("http://local.test/api/rules/search?keyword=bard"));
     expect(response.status).toBe(503);
     expect(await readJson(response)).toMatchObject({
       source: "unavailable",
@@ -70,7 +71,7 @@ describe("local rule routes", () => {
     } as never);
 
     const response = await cnCandidatesRoute.GET(
-      new Request("http://local.test/api/rules/cn-candidates?modules=google,unknown,google&excluded=geosite:cn,bad,geoip:cn,geosite:cn&debug=1")
+      new NextRequest("http://local.test/api/rules/cn-candidates?modules=google,unknown,google&excluded=geosite:cn,bad,geoip:cn,geosite:cn&debug=1")
     );
     expect(response.status).toBe(200);
     expect(await readJson(response)).toMatchObject({
@@ -94,13 +95,13 @@ describe("local rule routes", () => {
       source: "stale",
     } as never);
 
-    let response = await cnCandidatesRoute.GET(new Request("http://local.test/api/rules/cn-candidates"));
+    let response = await cnCandidatesRoute.GET(new NextRequest("http://local.test/api/rules/cn-candidates"));
     expect(response.status).toBe(200);
     const defaultCall = vi.mocked(getCnRuleCandidateDiscovery).mock.calls.at(-1)?.[0] as { moduleIds: string[] };
     expect(defaultCall.moduleIds.length).toBeGreaterThan(0);
 
     vi.mocked(getCnRuleCandidateDiscovery).mockRejectedValueOnce(new RuleIndexUnavailableError());
-    response = await cnCandidatesRoute.GET(new Request("http://local.test/api/rules/cn-candidates?excluded=geoip:cn"));
+    response = await cnCandidatesRoute.GET(new NextRequest("http://local.test/api/rules/cn-candidates?excluded=geoip:cn"));
     expect(response.status).toBe(503);
     expect(await readJson(response)).toMatchObject({
       source: "unavailable",
