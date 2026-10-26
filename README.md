@@ -2,273 +2,158 @@
 <div align="center">
   <p><img src="edge/public/edgesub-mark.svg" alt="EdgeSub" width="96"></p>
   <h1>EdgeSub</h1>
-  <p>基于 SubBoost 的 Cloudflare Workers 边缘部署版</p>
+  <p>A Cloudflare Workers edition of SubBoost</p>
   <p>
     <a href="https://github.com/hackjsw/SubBoost-Edge"><img src="https://img.shields.io/badge/source-EdgeSub-087f70.svg" alt="Source repository"></a>
-    <a href="https://github.com/SubBoost/subboost"><img src="https://img.shields.io/badge/upstream-SubBoost-blue.svg" alt="Upstream project"></a>
+    <a href="https://github.com/SubBoost/subboost"><img src="https://img.shields.io/badge/upstream-SubBoost%20v2.10.0-blue.svg" alt="Upstream project"></a>
     <img src="https://img.shields.io/badge/runtime-Cloudflare%20Workers-F38020.svg" alt="Cloudflare Workers">
     <img src="https://img.shields.io/badge/license-AGPL--3.0--only-green.svg" alt="AGPL-3.0-only">
   </p>
+  <p><strong><a href="README.md">English</a> | <a href="README-CN.md">中文</a></strong></p>
   <p>
-    <a href="https://sub.cces.us.ci/">当前部署</a> ·
-    <a href="https://github.com/SubBoost/subboost">上游源码</a> ·
-    <a href="https://docs.subboost.org">上游文档</a>
+    <a href="https://sub.cces.us.ci/">Live deployment</a> ·
+    <a href="https://github.com/SubBoost/subboost">Upstream source</a> ·
+    <a href="https://docs.subboost.org">Upstream docs</a>
   </p>
 </div>
 <!-- markdownlint-enable MD033 MD041 -->
 
-## 项目来源与致谢
+## Overview
 
-EdgeSub 是基于 [SubBoost](https://github.com/SubBoost/subboost) **v2.6.0** 开发的非官方修改版本，不是 SubBoost 上游团队发布的官方版本。仓库保留了上游 Git 历史，以便清楚追溯代码来源和后续同步。
+EdgeSub runs the SubBoost Clash/Mihomo config generator and subscription manager inside a single Cloudflare Worker. The Next.js frontend is statically exported and served through Workers Static Assets. The API, login, subscription storage, and scheduled refreshes all run in the same Worker, so there is no server or database to maintain.
 
-特别感谢原项目作者及主要维护者 [RyanVan（@Ryson-32）](https://github.com/Ryson-32)，感谢 [SubBoost 团队](https://github.com/SubBoost) 和所有 [项目贡献者](https://github.com/SubBoost/subboost/graphs/contributors) 持续完善订阅转换、节点解析、规则管理和可视化界面。没有他们的工作，就不会有这个 Edge 版本。
+EdgeSub does not provide proxy nodes or proxy services. It only parses, converts, stores, and refreshes subscription content that you supply.
 
-同时感谢以下开源项目及社区提供的基础能力、规则数据与反馈：
+## Origin and Acknowledgements
 
-- [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat)：远端规则目录与规则集数据。
-- [ACL4SSR/ACL4SSR](https://github.com/ACL4SSR/ACL4SSR)：Clash 转换规则配置。
-- [Cloudflare Workers](https://workers.cloudflare.com/)：边缘运行时、KV、Cron Triggers 和静态资源托管。
-- LINUX DO、IDC Flare 及 SubBoost 社区的参与者和使用者。
+EdgeSub is an unofficial modified version of [SubBoost](https://github.com/SubBoost/subboost). It is not an official release from the SubBoost team. The repository keeps the upstream Git history, so the origin of the code and later syncs can be traced.
 
-本仓库在 **2026-07-21** 基于上游 v2.6.0 增加了 Cloudflare Workers 部署、登录保护、KV 订阅管理、定时更新和远端规则目录同步等功能，并在 **2026-10-07** 同步了上游 v2.9.0 的解析、刷新和配置能力（界面保持 EdgeSub 自己的设计）。原项目及既有代码的版权归原作者和贡献者所有，本仓库的修改内容继续遵循 `AGPL-3.0-only`。
+- **2026-07-21**: Added Cloudflare Workers deployment, login protection, subscription management, scheduled refreshes, and remote rule catalog sync on top of upstream v2.6.0.
+- **2026-10-07**: Synced the parsing, refresh, and configuration features of upstream v2.9.0.
+- **2026-10-26**: Synced the protocol-option and rule-target fixes from upstream v2.10.0.
 
-### EdgeSub 2.6.0-edge.13（2026-10-08）
+EdgeSub has always kept its own interface design.
 
-本版本修复自定义强调色选不到浅色的问题，并让页面底色也跟随强调色。
+Special thanks to the original author and lead maintainer [RyanVan (@Ryson-32)](https://github.com/Ryson-32), the [SubBoost team](https://github.com/SubBoost), and all [contributors](https://github.com/SubBoost/subboost/graphs/contributors) for their work on subscription conversion, node parsing, rule management, and the visual editor. This Edge edition would not exist without them.
 
-- 修复取色器选浅色时颜色被改掉的问题。上个版本为了保证按钮上的白字可读，会把偏亮的颜色统一压暗，结果粉色变成灰褐、浅绿变成墨绿，等于选不了浅色。现在**按钮就是你选的那个颜色**，改为按填充色的亮度自动把按钮文字切换成白色或近黑色。任何颜色都至少有一种文字色满足 WCAG AA，所以不需要再改动用户的选色。
-- 修复浅色强调色下边框和淡色底几乎看不见的问题（此前 `#ffc0cb` 推导出的边框是 `#ffedf0`）。自定义色的色阶改用绝对亮度推导，不再受所选颜色深浅影响。
-- 页面背景、卡片、分割线等中性色现在也跟随强调色：保留原本的明暗层次，只把色相换成强调色的色相，正文文字的着色强度保持不变以免影响阅读。预设和自定义颜色都生效。
-- 共享 SubBoost 组件区域的中性色同步跟随，不再出现强调色变了但底色没变的割裂感。
+Thanks also to these projects and communities:
 
-兼容性：底色跟随用到 CSS 相对颜色语法（Chrome 119+ / Safari 16.4+ / Firefox 128+）。更老的浏览器会自动回退到改动前的中性配色，功能不受影响。
+- [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat): remote rule catalog and rule-set data.
+- [ACL4SSR/ACL4SSR](https://github.com/ACL4SSR/ACL4SSR): Clash conversion rule profiles.
+- [Cloudflare Workers](https://workers.cloudflare.com/): edge runtime, KV, Durable Objects, Cron Triggers, and static asset hosting.
+- Members and users of the LINUX DO, IDC Flare, and SubBoost communities.
 
-已知取舍：深色主题下如果自定义一个很暗的颜色，按钮与深色页面底的明暗差会很小、轮廓变模糊（按钮文字因为会自动变白，仍然清晰可读）。这是「按精确选色」的直接代价。
+Copyright in the original project and existing code belongs to its authors and contributors. Changes in this repository remain under `AGPL-3.0-only`.
 
-升级说明：需要重新部署 Worker；无需迁移数据。此前选过自定义颜色的用户，颜色会从被压暗的版本恢复成当初选的原色。
+## Features
 
-### EdgeSub 2.6.0-edge.12（2026-10-08）
+- **Config generation**: Keeps SubBoost's Clash/Mihomo config generation, node import, proxy chains, and fine-grained routing.
+- **Three-step generator**: Subscription sources → rule scheme → save.
+  - **Sources**: Pasted input is recognized as a subscription URL, Clash YAML, or node links. You can also drop in a `.yaml` file.
+  - **Rule scheme**: Choose the built-in rules or one of 7 ACL4SSR online profiles. Turn on "Customize" to adjust nodes, relay groups, routing groups, rules, and DNS.
+- **Two output formats**: Clash / Mihomo YAML and v2rayN Base64. See [Output Formats](#output-formats).
+- **My subscriptions** (`/dashboard`):
+  - Shows each subscription's refresh status, node count, traffic used, and expiry.
+  - Supports filtering, search, link copying, QR codes, editing, refreshing, downloading, and deleting.
+  - Failed refreshes show the reason and a retry button.
+- **Scheduled refresh**: Every 6 hours, due subscriptions are refreshed, each in its own invocation. A failed refresh keeps serving the last successful config and retries after one hour.
+- **Rule catalog**: The MetaCubeX rule catalog syncs daily, and search results are cached for 24 hours. When the GitHub API is rate-limited, it falls back to the official catalog page, then to a bundled catalog.
+- **Login protection**:
+  - Management and conversion endpoints require login. The password is a Worker Secret, and sessions use a signed HttpOnly cookie.
+  - `/config/:token` links act as bearer links, so subscription clients do not need to log in.
+- **Themes**: System, light, and dark modes. The accent color can be one of 8 presets or any custom color.
+- **Legacy endpoints**: The original Worker's `/sub`, `/clash`, `/shorten`, and `/test` endpoints are kept.
+- **Source availability**: The build generates the matching source archive, served at `/subboost-edge-source.tar.gz`.
 
-本版本让主题强调色可以自定义，并统一了各强调色的对比度。
+## Output Formats
 
-- 顶栏的主题按钮改成下拉菜单：上半部分是「跟随系统 / 浅色 / 深色」，下半部分是强调色，提供橙、琥珀、玫瑰、紫、靛蓝、蓝、青、绿 8 个预设，另可用取色器指定任意颜色。选择保存在浏览器本地，不写入订阅数据，也不经过 Worker；页面在首屏绘制前就应用，不会闪色。
-- 强调色全局生效，包括沿用上游 SubBoost 组件的区域（节点管理、代理组、规则等）。整套品牌配色现在由一条 11 级色阶驱动，浅色和深色各自映射到合适的档位。
-- 统一对比度：此前默认橙色按钮上的白字只有 3.56:1，是全部配色里最低的。现在 8 个预设全部达到 WCAG AA（4.5:1），实测区间 4.70:1 – 6.29:1。自定义颜色按同一标准自动压暗，选到过亮的颜色（例如亮黄）也不会出现看不清的按钮。
-- 受此影响，默认橙色比之前更深：浅色主题的按钮填充由 `#ea580c` 变为 `#c2410c`，深色主题相应加深一档。其余界面元素不变。
-
-升级说明：需要重新部署 Worker；无需迁移数据。此前没有选过强调色的用户会看到加深后的默认橙色。
-
-### EdgeSub 2.6.0-edge.11（2026-10-07）
-
-本版本同步上游 SubBoost v2.9.0 的节点解析、订阅刷新和配置功能。界面沿用 EdgeSub 自己的设计，没有采用上游的新主题。
-
-- 修复机场给节点改名后中转代理组失效的问题：定时更新和手动刷新时，节点改名会同步到中转节点、落地节点、监听端口和代理组成员顺序，并保存到订阅记录中。此前改名后的节点会从中转组里悄悄消失。注意：如果某个节点在一次刷新中暂时消失（不是整个来源拉取失败），引用它的设置会被删除。
-- 修复 REALITY 节点每次刷新都被当成新节点、重复追加到列表末尾的问题（机场每次更新会轮换 `_spider-x`）；机场改名后，手动修改过的节点名也不再丢失。
-- 节点解析修复：
-  - Shadowrocket 导出的 VLESS 链接不再被误判为 REALITY；
-  - 证书指纹不再被当作客户端指纹，`tfo` 参数得以保留；
-  - 纯数字密码保留前导 0；WireGuard、Mieru 等节点不再被丢弃；
-  - 规则中含特殊字符时生成合法的 YAML；
-  - IPv6、SSR 节点名和以毫秒表示的到期时间解析正确。
-- 新增“节点管理 → 自动处理”：用正则按节点原名保留或排除节点，可实时预览；定时更新时同样生效。规则排除了全部节点时不能保存，“我的订阅”中的节点数按过滤后的结果显示。为避免定时更新超出 Workers 的 CPU 限制，在上游检查之外额外拒绝“重复的分组里含 `|`”和“超过 3 个无上限量词”的正则，并且只匹配节点名的前 128 个字符。
-- 每个代理组新增“高级设置”：修改代理组类型，并可为该组绑定本地监听端口（默认只监听 127.0.0.1，可选择允许局域网访问）。自动测速组可以单独设置测速地址。
-- 自定义规则可以直接填写 `.mrs` 规则集链接；批量导入时目标列留空会使用弹窗中选择的默认目标，也支持批量导入规则集链接。
-- 移到其他分组的预设规则在目标分组中保持启用；指向自定义分组的规则在排序和预览中不再丢失目标。
-- 浏览器存储不可用时草稿仍可继续编辑；切换或新建订阅后，迟到的导入和保存结果不会写进当前订阅。
-- `js-yaml` 升级到 4.3.2。
-
-未采用的上游改动：上游的新主题和界面样式；订阅拉取时用每种客户端标识各拉一遍再挑选结果的做法（在 Workers 上会让子请求翻倍，EdgeSub 保留原有的客户端标识重试）；依赖 `node:crypto` 的定时任务鉴权。
-
-升级说明：需要重新部署 Worker；无需迁移数据。已保存的订阅在下一次刷新时会自动同步节点改名。
-
-### EdgeSub 2.6.0-edge.10（2026-10-05）
-
-本版本修复新粘贴的节点被残留删除记录隐藏、以及编辑订阅时再次保存没有提示的问题。
-
-- 删除节点时只按原始名记录、不区分来源，来源移除后记录仍会残留。此前新粘贴的来源若含同名节点，会被静默隐藏，来源却显示“已解析 N 个节点”。现在来源首次成功导入时会清除与其节点同名的删除记录；已导入来源的重新拉取和定时刷新仍保留删除。
-- 修复编辑已有订阅时只有第一次保存会弹出“已保存修改”的问题（订阅链接不变时不再提示）。现在每次保存成功都会显示。
-- 修复 `packages/ui` 两个测试文件的类型错误。
-
-升级说明：需要重新部署 Worker；无需迁移数据。
-
-### EdgeSub 2.6.0-edge.9（2026-10-05）
-
-本版本修复编辑订阅时节点被误判为已删除、以及“自定义”面板总是收起的问题。
-
-- 修复粘贴的节点中有多个同名节点（自动编号为“(2)”“(3)”）时，删除其中一个会让重新编辑时同名的其余节点全部消失、来源显示“返回了内容，但没有可用节点”的问题。编辑页加载与“我的订阅”节点数现在与定时刷新使用同一套规则：仅按原始名记录的删除标记，只在该原始名唯一时生效。“我的订阅”节点数此前还读错了原始名字段，一并修复。
-- 修复编辑已有订阅时“自定义”面板总是收起的问题：订阅加载完成后，如存在自定义内容会自动展开；删除的节点、监听端口、隐藏或改名的代理组、代理组高级设置和非默认 DNS 也计入自定义。手动改名的节点暂不识别（节点名模板也会改名，无法区分）。
-- 修复本地版生成契约测试中链式代理组的中转与落地节点构成循环的问题。
-
-升级说明：需要重新部署 Worker；无需迁移数据。
-
-### EdgeSub 2.6.0-edge.8（2026-10-05）
-
-本版本修复从“我的订阅”进入编辑时，已保存的节点和订阅来源偶发丢失的问题。
-
-- 修复编辑页加载订阅与登录态确认之间的竞态：登录态确认后切换配置草稿会重置编辑器，若订阅详情先加载完成，来源和缓存节点会被清空，既不使用已保存的节点，也不会重新拉取，保存时提示“还没有可用节点”。现在会等登录态确认后再加载订阅详情，等待期间显示加载状态。
-- 新增对应的回归测试。
-
-升级说明：需要重新部署 Worker；无需迁移数据。
-
-### EdgeSub 2.6.0-edge.7（2026-10-02）
-
-本版本对界面做了一次全面改版，Edge 专用页面与上游 SubBoost 的共享界面分开实现。设计稿和说明见 `docs/design/edge-ui-v2/`。
-
-- 主题：默认深色“石墨灰”，强调色为橙色；同时提供浅色主题，默认跟随系统，可在页头切换并记住选择。下拉框选项、共享组件和协议标签在两种主题下都已适配，深色模式不再出现白色弹出列表，浅色模式下的淡色标签和计数也能看清。
-- 生成器：合并原来的“快捷 / 高级”两套界面，改为“订阅来源 → 规则方案 → 保存”三步。左侧是主操作区，右侧是固定的保存卡片（预览概览、订阅名称、自动更新、保存与下载），不用滚到页面底部就能保存。
-- 订阅来源：来源列表末尾始终有一个“添加来源”空白框，粘贴后自动识别为订阅链接、Clash YAML 或节点链接；一次粘贴多行时，多个订阅链接拆成多张卡片，多条节点链接合并为一张；支持拖入 `.yaml` 文件。每张卡片可改类型、调整顺序或移除，订阅 token 默认打码。
-- 拉取失败处理：订阅地址是纯 IP 时（Cloudflare Workers 无法请求 IP 地址，会返回 403），粘贴时就给出提示和解决办法。服务器拒绝访问（401/403）时会说明已经试过哪些客户端标识，可以指定 mihomo、Clash Verge、v2rayN、Shadowrocket 或自定义标识重试；指定的标识会随订阅保存，以后自动更新也用它。
-- 规则方案：内置规则与 ACL4SSR 在线模板放在同一步，并标明“本地生成 / 经转换服务生成”。打开“自定义”开关后，在所选模板基础上调整节点、中转代理组、分流代理组、规则和 DNS（即原高级模式）。
-- 配置预览：“查看 YAML”和“关系图”改为从右侧滑出的抽屉。关系图按“规则 → 代理组 → 出口”展示流向，点选代理组可以高亮相关规则和出口，拖动代理组可以调整顺序。YAML 视图支持分段跳转、搜索高亮、行号，密码、UUID 等敏感信息默认隐藏；复制和下载的始终是完整配置。
-- 我的订阅：顶部改为状态卡片（订阅数、自动更新正常、更新失败、下次定时更新），列表支持按状态筛选和搜索，每条订阅显示节点数、已用流量和到期时间，更新失败时直接显示原因并提供“立即重试”。操作合并为“复制链接”（可选 Clash / v2rayN 格式）、二维码和“更多”菜单；二维码在浏览器本地生成，用到的 `uqr` 库在打开二维码弹窗时才加载。
-- 手机布局：底部导航为“生成器 / 新建 / 我的订阅”，生成器底部固定保存栏，“更多”菜单改为底部弹出面板；源码下载链接移到所有尺寸都显示的页脚。登录页同步改版。
-- 接口：订阅列表接口增加 `template`、`nodeCount`（不含已删除的节点）和 `usage`（已用流量、总流量、到期时间）字段；订阅来源导入接口支持 `userAgent` 参数。
-
-升级说明：需要重新部署 Worker；无需迁移数据。
-
-### EdgeSub 2.6.0-edge.6（2026-10-01）
-
-本版本解决 Cloudflare 免费版每次调用 10 ms CPU 上限带来的问题：此前订阅较多或多个订阅同时到期时，定时更新可能整体超限失败并反复重试；同时让 ACL4SSR 模板订阅在转换服务故障时仍能正常更新。
-
-- 定时任务改为每个到期订阅在独立调用中刷新（Worker 通过 `SELF` 服务绑定调用自身），每个订阅各自拥有 CPU 和子请求额度，一个订阅失败或超限不会拖累其他订阅。每次最多处理 30 个，其余按到期先后留到下一次，最久未更新的优先。
-- 定时任务扫描时直接信任 KV metadata 中“未到期”的记录，不再逐条读取和解析订阅内容，扫描本身几乎不消耗 CPU。
-- ACL4SSR 模板订阅的转换结果按“订阅 + 内容版本”缓存在 Cloudflare 边缘缓存中：30 分钟内的结果直接返回，不再每次请求转换服务、也不再每次解析和合并大体积 YAML，响应更快、CPU 消耗更低。缓存仅在自定义域名上生效。
-- 所有转换服务都失败时，不再返回 502：优先返回同一版本最近一次成功的转换结果（保留 7 天），没有时返回该订阅的原生配置（节点相同，使用内置规则），并通过响应头标明。
-- `/config` 订阅响应增加 ETag；客户端带 `If-None-Match` 请求且内容未变时返回 304，不再重复传输整份配置。
-- 修复 `package-lock.json` 与 `package.json` 不同步导致 `npm ci` 失败的问题，依赖重新锁定在 `wrangler 4.112.0` / `miniflare 4`；修复节点列表测试缺少连通性结果参数的问题。基于 workerd 的 Durable Object 运行时测试在 Windows 上默认跳过（部分 Windows 环境下 workerd 启动即崩溃），可设置 `EDGESUB_RUN_WORKERD_TESTS=1` 强制运行。
-
-升级说明：自行部署时，需要把 `edge/wrangler.jsonc` 中 `services` 的 `SELF` 绑定改成自己的 Worker 名称（与 `name` 一致），然后重新部署；无需迁移数据。未配置 `SELF` 绑定时，定时任务仍按原方式在同一次调用中依次刷新。
-
-### EdgeSub 2.6.0-edge.5（2026-10-01）
-
-本版本修复了编辑订阅时可能覆盖或丢失数据的问题，并让自动更新的时间和失败状态在界面上可见。
-
-- 使用 ACL4SSR 模板的订阅不再在每次被客户端拉取时写入 KV。交给转换服务的临时链接改为加密的自包含链接（5～10 分钟有效），不包含订阅 token，同一版本在同一时间窗口内链接不变，可命中转换服务缓存；订阅内容变化后旧链接立即失效。同时避免了新写入的 KV 在其他机房尚不可见导致的偶发 502。
-- 修复在“我的订阅”中点“新建订阅”时，首页仍处于上一条订阅的编辑状态，保存后会覆盖那条订阅的问题。
-- 编辑订阅时登录过期，重新登录后会继续更新原订阅，不会另外新建一条；从“我的订阅”打开编辑时如果登录已过期，登录后会回到该订阅的编辑页。
-- “我的订阅”在登录过期时显示登录提示，刷新、删除、保存设置遇到登录过期时提供“去登录”按钮；列表加载失败时显示错误和重试按钮，不再误显示“暂无订阅”。
-- 修复 6 小时 Cron 下自动更新被推迟一整个周期的问题（例如 24 小时间隔实际变成 30 小时）。现在按所选间隔对齐到最近一次 Cron 执行。
-- 自动更新最小间隔调整为 6 小时、以 6 小时为步长，界面说明同步改为“每 6 小时批量执行”；订阅响应中建议客户端的更新间隔不低于 6 小时。已有的更短间隔订阅仍可正常使用，实际按 6 小时执行。
-- “我的订阅”显示下次自动更新时间；定时更新失败时显示失败时间和原因，并说明仍在提供上一次成功的配置。
-- 页头显示当前访问的域名，不再写死 `sub.cces.us.ci`。
-
-升级说明：需要重新部署 Worker；无需迁移数据。升级后，部署前生成的 ACL4SSR 临时链接会失效，不影响客户端，客户端下次拉取时会自动生成新链接。
-
-### EdgeSub 2.6.0-edge.4（2026-10-01）
-
-本版本主要降低 KV 写入量，避免订阅数量增加后很快用完 Cloudflare 免费版每天 1,000 次 KV 写入额度。
-
-- 订阅自动更新 Cron 从每 15 分钟调整为每 6 小时（`0 */6 * * *`，UTC）。自动更新间隔小于 6 小时的订阅，实际按 6 小时执行；失败重试也会在下一次 Cron 时进行。
-- 修复启用 Durable Object（`SUB_STORE`）后，Cron 每次运行都会把未到期订阅重写一遍的问题。以前每个已保存订阅每天固定产生约 96 次 KV 写入，现在只在 KV metadata 缺失或过期时补写一次。
-- `SubscriptionStore` 收到内容和 metadata 都未变化的写入时直接返回，不再同步写入 KV。
-- 旧版短链接（`/sub?id=...`）的 7 天滚动有效期改为每天最多续期一次。以前每次访问都会写一次 KV，现在同一条短链接每天最多写 1 次；升级前创建的短链接首次访问时会补记续期时间。
-- 更新 Edge Worker 版本标识，新增 Cron 写入、Durable Object 去重和短链接续期的回归测试。
-
-升级说明：需要重新部署 Worker，新的 Cron 配置才会生效；无需迁移数据，已有订阅和短链接可继续使用。
-
-### EdgeSub 2.6.0-edge.3（2026-09-07）
-
-- 优化 Cloudflare 节点连通性测试：显示测试进度、总耗时，并区分地址无效、连接超时和不可达。
-- 保留 ACL4SSR 在线模板的远程更新机制：保存后的订阅请求会继续使用 ACL4SSR 上游配置，转换结果缓存约 5 分钟；Cron 不会复制模板文件到 KV。
-- 更新 Edge Worker 版本标识，并补充相关回归测试与构建验证。
-
-## 项目简介
-
-EdgeSub 将 SubBoost 的配置生成器和订阅管理能力部署到一个 Cloudflare Worker 中。Next.js 前端会静态导出并由 Workers Static Assets 提供，API、登录、KV 数据和定时任务则在同一个 Worker 内运行，因此不需要额外维护服务器或数据库。
-
-它不会提供代理节点或代理服务，只负责解析、转换、保存和更新用户自行提供的订阅内容。
-
-## Edge 版本功能
-
-- 保留 SubBoost 的 Clash/Mihomo 配置生成、节点导入、链式代理和智能分流能力。
-- 转换后可下载 Clash YAML 或 v2rayN Base64 节点订阅；原有订阅链接不变，新增格式通过 `?format=v2rayn` 使用。
-- 快捷模式在“完整版”下提供 ACL4SSR 模板入口，可选择 7 个官方远程配置。
-- 支持 `/sub`、`/clash`、`/shorten` 和 `/test` 等原 Worker 接口。
-- 使用 Worker Secret 密码登录，并通过签名的 HttpOnly Cookie 保护管理接口。
-- 使用 `SUB_KV` 持久保存订阅、生成结果、自动更新设置和规则索引。
-- 提供 `/dashboard` 管理已保存的订阅，可编辑、刷新、下载和删除记录。
-- 每 6 小时扫描自动更新任务，未到期的记录不会重复写入 KV。
-- 每天同步一次 MetaCubeX 规则目录，搜索结果缓存到 KV 24 小时。
-- Dashboard 显示规则来源、数量和同步时间，并支持管理员立即同步。
-- GitHub API 受限时自动降级到官方目录页面，再失败时使用内置规则目录。
-- 构建时生成对应源码归档，并通过 `/subboost-edge-source.tar.gz` 向网络用户提供。
-
-## 订阅输出格式
-
-生成配置后，首页可分别下载 Clash 和 v2rayN 文件；保存订阅后的弹窗提供两种链接，仪表盘也可选择复制或下载的格式。
-
-| 格式 | Edge 链接示例 | 内容 |
+| Format | Example link | Content |
 | --- | --- | --- |
-| Clash / Mihomo | `/config/原token` | 原有 YAML 和已选择的 Clash 规则方案，行为不变 |
-| v2rayN | `/config/原token?format=v2rayn` | 最近保存/刷新成功的节点，UTF-8 Base64 编码 |
+| Clash / Mihomo | `/config/<token>` | Full YAML, including the selected rule scheme |
+| v2rayN | `/config/<token>?format=v2rayn` | Nodes from the last successful save or refresh, UTF-8 Base64 |
 
-已有查询参数时追加 `&format=v2rayn`。无需重建订阅、修改 token 或重新导入旧 Clash 链接；客户端 User-Agent 不会改变默认格式。Edge 原有 `/sub`、`/clash` 和 `/shorten` 的读取链接继续可用。双格式入口仅在 Cloudflare 部署中启用。
+- **Choosing a format**: Append `&format=v2rayn` if the link already has query parameters. You don't need to recreate the subscription or change its token. The default format never depends on the client's User-Agent.
+- **What v2rayN export covers**:
+  - Protocols: common options for SS, VMess, VLESS, Trojan, Hysteria2, TUIC v5, and AnyTLS.
+  - Transports: TCP, WebSocket, HTTPUpgrade, gRPC, and XHTTP, where they can be expressed.
+  - Not included: Clash routing, DNS, proxy groups, listeners, and proxy providers.
+- **Skipped nodes**: Nodes that need `dialer-proxy`, or use unsupported protocols, plugins, or transport options, are skipped. Downloads show how many were skipped. If nothing can be exported, the response is HTTP 422.
+- **Caching**: v2rayN output is generated by built-in code in the browser or Worker, not by an external subconverter. The edge cache keeps the two formats separate, and editing, refreshing, or deleting a subscription invalidates both.
 
-v2rayN 导出支持 SS、VMess、VLESS、Trojan、Hysteria2、TUIC v5、AnyTLS 的常用参数，以及可表达的 TCP、WebSocket、HTTPUpgrade、gRPC 和 XHTTP 传输。它不携带 Clash 分流、DNS、代理组、监听端口或远程节点提供者；依赖 `dialer-proxy`、不支持的协议/插件/传输参数会跳过，下载时显示跳过数量。没有可导出节点时返回 HTTP 422，不会返回成功的空订阅。高级客户端参数不保证逐项等价，完整配置请继续使用 Clash / Mihomo。
+## Storage
 
-v2rayN 输出由浏览器或 Worker 内置代码生成，不调用外部 subconverter；Edge 缓存区分格式，编辑、刷新和删除会使两种格式同时失效。订阅写入由 Durable Object 按 token 串行处理，KV 继续作为兼容镜像。
+- **`SUB_STORE`** (SQLite Durable Object): One instance per subscription. It stores the generated YAML, sources, and refresh settings, and is the authoritative copy. Writes to the same subscription are serialized here.
+- **`SUB_KV`**: The discovery index and compatibility mirror, used by the subscription list and the Cron scan. It also caches the rule catalog.
+- **Migration**: Legacy KV records are imported into the Durable Object on first access. Subscription URLs stay the same.
+- **Mirror lag**: Failed KV mirror writes are retried by a Durable Object alarm, so the list and Cron discovery can briefly lag behind a successful write.
 
-业务逻辑审查、修复与验证结果见 [审查报告](docs/business-logic-review-2026-09-20.md)。
+## ACL4SSR Online Profiles
 
-## 目录结构
+The rule scheme step offers 7 official ACL4SSR remote profiles: Standard, Lite, Full, AI, Multi-region, No speed test, and No ad blocking.
 
-| 目录 | 用途 |
-| --- | --- |
-| `edge/app` | Edge 版本的 Next.js 页面，包括首页、登录页和订阅管理页 |
-| `edge/worker` | Worker 路由、登录、KV、订阅转换、规则 API 和 Cron 逻辑 |
-| `edge/src` | Edge 页面使用的布局组件 |
-| `packages/core` | 上游协议解析、配置生成和规则模型 |
-| `packages/server-core` | 上游服务端订阅处理与规则目录能力 |
-| `packages/ui` | 上游 SubBoost 配置器和通用界面 |
-| `local` | 上游本地部署版本 |
+- **Where the profile is applied**: The selected profile is saved with the subscription. When the subscription link is fetched, the Worker passes the matching ACL4SSR `master` profile to a subconverter. Cron only refreshes the sources and never copies profile files.
+- **Conversion cache**: Results are cached at the Cloudflare edge per subscription and content version. Cached results are served for 30 minutes, so profile updates usually take effect within about 30 minutes. The edge cache only works on custom domains; on `*.workers.dev`, every request is converted again.
+- **Backends**: Set `SUBCONVERTER_BACKEND` and `SUBCONVERTER_FALLBACK_BACKENDS` (comma-separated) in `edge/wrangler.jsonc`. The defaults are public backends listed by the [ACL4SSR online tool](https://acl4ssr-sub.github.io/).
+  - Each backend gets up to 8 seconds. Timeouts and invalid results switch to the next backend.
+  - A failed backend is skipped for 60 seconds.
+- **When every backend fails**:
+  - The Worker first serves the last successful result for the same version. These results are kept for 7 days, and the response carries `X-SubBoost-Converter-Cache: stale`.
+  - If there is none, it serves a native config built with the built-in rules, marked with `X-SubBoost-Converter-Fallback: native`.
+- **Privacy**: The converter only receives node names and placeholder nodes, through a temporary link valid for 5 minutes. The Worker fills real addresses, credentials, and VLESS/XHTTP/ECH fields back in.
 
-## 部署
+Public backends may be rate-limited or shut down. You can replace them with your own.
 
-### 1. 环境要求
+## Deployment
 
-- Node.js `22.13+` 或 `24+`
-- Cloudflare 账号和 Wrangler 登录状态
-- 一个用于绑定 `SUB_KV` 的 KV Namespace
+### 1. Requirements
 
-安装依赖：
+- Node.js `22.13+` or `24+`
+- A Cloudflare account with Wrangler logged in
+- A KV namespace to bind as `SUB_KV`
 
 ```bash
 npm ci
 ```
 
-### 2. 配置 Worker 和 KV
+### 2. Configure the Worker
 
-创建 KV Namespace：
+Create the KV namespace:
 
 ```bash
 npx wrangler kv namespace create SUB_KV --config edge/wrangler.jsonc
 ```
 
-将命令返回的 Namespace ID 写入 [`edge/wrangler.jsonc`](./edge/wrangler.jsonc)，并将其中的 Worker `name` 改成自己的名称；`services` 里 `SELF` 绑定的 `service` 必须同步改成同一个名称（Worker 绑定自身，用于让每个订阅的定时刷新在独立调用中执行）。不要直接复用仓库里的生产 KV 数据或账号配置。
+Then edit [`edge/wrangler.jsonc`](./edge/wrangler.jsonc):
 
-当前配置包含两个 Cron Trigger：
+- Set the `id` under `kv_namespaces` to the namespace ID returned above.
+- Change the Worker `name` to your own.
+- Change the `service` of the `SELF` binding under `services` to the same name. The Worker uses this binding to call itself, so each subscription's scheduled refresh runs in its own invocation.
 
-| Cron | 作用 |
+Do not reuse the KV ID or Worker name from this repository.
+
+Cron Triggers run in UTC:
+
+| Cron | Purpose |
 | --- | --- |
-| `0 */6 * * *` | 每 6 小时检查一次需要更新的订阅，自动更新间隔小于 6 小时的订阅实际按 6 小时执行。每个到期订阅通过 `SELF` 绑定在独立调用中刷新，每次最多 30 个，其余按到期先后留到下一次 |
-| `17 3 * * *` | 每天同步一次远端规则目录，Cloudflare Cron 使用 UTC |
+| `0 */6 * * *` | Checks for subscriptions due for refresh, at most 30 per run with the most overdue first. Each one refreshes in its own invocation through the `SELF` binding. Intervals shorter than 6 hours effectively run every 6 hours |
+| `17 3 * * *` | Syncs the remote rule catalog once a day |
 
-### 3. 配置 Secret
+### 3. Configure Secrets
 
-登录密码和会话签名密钥必须保存在 Cloudflare Worker Secret 中，不要写进源码或 `.dev.vars.example`：
+The login password and the session signing key must be stored as Worker Secrets, never in source:
 
 ```bash
 npx wrangler secret put EDGE_ADMIN_PASSWORD --config edge/wrangler.jsonc
 npx wrangler secret put EDGE_SESSION_SECRET --config edge/wrangler.jsonc
 ```
 
-如果规则搜索较频繁，可以配置只读 GitHub Token，提高 GitHub API 限额：
+If you search rules often, you can add a read-only GitHub token for a higher API rate limit:
 
 ```bash
 npx wrangler secret put GITHUB_TOKEN --config edge/wrangler.jsonc
 ```
 
-### 4. 检查并部署
+### 4. Check and Deploy
 
 ```bash
 npm run edge:typecheck
@@ -276,74 +161,165 @@ npm run edge:build
 npm run edge:deploy
 ```
 
-如需绑定自定义域名，请在 Cloudflare Dashboard 的 Worker Routes 或 Custom Domains 中完成。Secret 和 KV 数据不会包含在 Git 仓库或构建生成的源码归档中。
+Bind a custom domain under Worker Routes or Custom Domains in the Cloudflare dashboard. Secrets and KV data are never included in the Git repository or the source archive.
 
-## 常用接口
+## Endpoints
 
-| 路径 | 说明 |
+| Path | Description |
 | --- | --- |
-| `/` | EdgeSub 配置生成器 |
-| `/login` | 管理员登录 |
-| `/dashboard` | KV 订阅记录管理 |
-| `/api/subscriptions` | 已保存订阅的管理接口 |
-| `/api/rules/search` | 远端规则目录搜索接口，需要登录 |
-| `/api/rules/cn-candidates` | 中国规则候选接口，需要登录 |
-| `/api/rules/status` | 规则目录缓存与下次同步状态，需要登录 |
-| `/api/rules/refresh` | 立即同步远端规则目录，仅接受登录后的 POST 请求 |
-| `/sub` | 通用 Base64 订阅输出 |
-| `/clash` | Clash YAML 转换输出 |
-| `/config/:token` | 已保存订阅的固定访问地址 |
+| `/` | Config generator |
+| `/login` | Administrator login |
+| `/dashboard` | My subscriptions |
+| `/config/:token` | Permanent link to a saved subscription; no login required |
+| `/api/subscriptions` | Subscription management; login required |
+| `/api/source-import` | Fetches remote subscription content for the browser; login required |
+| `/api/rules/search` | Remote rule catalog search; login required |
+| `/api/rules/cn-candidates` | China rule candidates; login required |
+| `/api/rules/status` | Rule catalog cache and next sync time; login required |
+| `/api/rules/refresh` | Syncs the rule catalog now; logged-in POST only |
+| `/api/health` | Health check |
+| `/sub` | Generic Base64 subscription output (legacy) |
+| `/clash` | Clash YAML conversion output (legacy) |
 
-## ACL4SSR 官模与更新机制
+## Repository Layout
 
-Edge 部署在首页快捷模式的“完整版”下方提供 **ACL4SSR 模板**入口，可选择以下 7 个 ACL4SSR 官方远程配置：
+| Directory | Purpose |
+| --- | --- |
+| `edge/app` | Edge Next.js pages: generator, login, and my subscriptions |
+| `edge/src` | Edge page components, themes, and layout |
+| `edge/worker` | Worker routing, login, Durable Object, KV, conversion, rule API, and Cron |
+| `packages/core` | Upstream protocol parsing, config generation, and rule models |
+| `packages/server-core` | Upstream server-side subscription handling and rule catalog |
+| `packages/ui` | Upstream SubBoost configurator and shared UI |
+| `local` | Upstream self-hosted edition (Node.js + PostgreSQL) |
+| `docs/design/edge-ui-v2` | EdgeSub UI design files |
 
-- 标准版
-- 精简版
-- 完整版
-- AI 版
-- 多地区版
-- 无测速版
-- 无拦截版
-
-所选方案会随订阅记录保存到 KV。访问订阅链接时，Worker 将对应的 ACL4SSR `master` 配置地址交给 subconverter；Cron 更新订阅源，不会单独下载或复制模板文件到 KV。转换结果按“订阅 + 内容版本”缓存在 Cloudflare 边缘缓存中：30 分钟内直接返回缓存，超过 30 分钟重新转换，因此模板更新一般在 30 分钟左右生效，另受转换服务自身缓存影响。边缘缓存仅在自定义域名上生效，`*.workers.dev` 上每次都会重新转换。
-
-Worker 支持一个主后端和两个备用后端，通过 `edge/wrangler.jsonc` 的 `SUBCONVERTER_BACKEND` 和 `SUBCONVERTER_FALLBACK_BACKENDS`（逗号分隔）配置。当前使用 `api.dler.io`、`pub-api-1.bianyuan.xyz` 和 `api.wcc.best`，来自 [ACL4SSR 在线工具](https://acl4ssr-sub.github.io/) 的公开后端列表。超时、非 200 响应、无效 YAML 或空节点配置会自动切换，每个后端最多等待 8 秒。同一 Worker 实例会暂时跳过失败后端 60 秒。全部失败时，优先返回该订阅同一版本最近一次成功的转换结果（保留 7 天，响应头 `X-SubBoost-Converter-Cache: stale`）；没有可用结果时返回该订阅的原生配置（节点相同，使用 SubBoost 内置规则，响应头 `X-SubBoost-Converter-Fallback: native`），避免客户端更新失败。
-
-保存后的 ACL 订阅仅将节点名称和占位节点通过 5 分钟临时链接交给转换服务生成代理组，真实节点地址、凭据及 VLESS/XHTTP/ECH 字段由 Worker 填回，避免旧转换器丢弃节点。旧 `/clash` 接口仍按原有方式转交其输入源。公共后端仍可能限流或停服，可替换为自己的服务地址。
-
-首页本地 YAML 预览仍使用 EdgeSub 内置模板。ACL4SSR 官模应用于保存后的订阅输出，也可以在“生成订阅链接”弹窗中再次确认或切换。
-
-## 本地开发与检查
+## Local Development
 
 ```bash
 npm run edge:dev
-npm run lint
-npm run test:unit
 npm run edge:typecheck
+npm run test:unit
+npm run lint
 ```
 
-本地 Secret 可以参考 [`edge/.dev.vars.example`](./edge/.dev.vars.example)，实际的 `edge/.dev.vars` 已被 Git 忽略。
+- **Local secrets**: See [`edge/.dev.vars.example`](./edge/.dev.vars.example). The real `edge/.dev.vars` is ignored by Git.
+- **Root type check**: `npx tsc --noEmit -p tsconfig.json` also covers `local/`. Generate the Prisma client first:
 
-## 同步上游
+  ```bash
+  npm run local:db:generate
+  ```
 
-克隆本仓库后，可以单独添加 SubBoost 官方仓库作为 `upstream`：
+- **Tests on Windows**: The workerd-based Durable Object runtime tests are skipped by default. Set `EDGESUB_RUN_WORKERD_TESTS=1` to run them anyway.
+
+## Syncing Upstream
 
 ```bash
 git remote add upstream https://github.com/SubBoost/subboost.git
 git fetch upstream
 ```
 
-合并上游更新前，请先检查 Edge 目录、共享包和依赖锁文件之间的差异，并重新执行测试和构建。
+EdgeSub's shared packages have diverged from upstream, so a plain merge usually doesn't work; cherry-pick individual commits instead. When you do:
 
-## 开源许可
+- Keep the `edge/` directory and the EdgeSub UI.
+- Upstream's `test/regression/` is removed in this repository. Resolve those conflicts by keeping the files deleted.
+- Since v2.10.0, upstream uses `js-yaml` 5.x and adds `packages/core/src/config/yaml-schema.ts`. This repository still uses 4.3.2, so commits that depend on that file must be synced together with the dependency upgrade.
+- After syncing, run `npm run test:unit`, `npm run edge:typecheck`, and `npm run edge:build`.
 
-EdgeSub 及其上游代码按照 [GNU Affero General Public License v3.0 only](./LICENSE) 发布。
+## Changelog
 
-如果修改本项目并通过网络向用户提供服务，AGPL-3.0 要求向这些用户提供部署版本对应的完整源码。本项目在页面导航中提供源码入口，并在构建时生成当前版本的源码归档。
+### Unreleased (main, 2026-10-26)
 
-请保留项目来源、原作者版权、许可证文件和修改说明，不要将此修改版描述为 SubBoost 官方版本。
+This update syncs the upstream SubBoost v2.10.0 fixes that directly affect subscription conversion, and clears the root type-check errors. The UI is unchanged.
 
-## 免责声明
+- **Protocol options are preserved on import**. These advanced options need support from the client kernel.
+  - VLESS XHTTP: independent download settings (`download-settings`), connection reuse, and padding options.
+  - VLESS Reality: hybrid key exchange (`support-x25519mlkem768`).
+  - Hysteria2: ECH, TCP Fast Open, and obfuscation packet sizes.
+  - TUIC/Hysteria, WireGuard, Snell (including `shadow-tls`), and SSH: some parameters that were previously lost or mapped incorrectly.
+- **Rule targets**: Fixed target proxy-group matching after rule imports, and stale rule references after a group is renamed, disabled, or deleted. The editor and the graph preview now agree.
+- **YAML compatibility**: The upstream fixes target `js-yaml` 5.x. The 4.3.2 version used by EdgeSub already handles the cases they restore, so the new upstream YAML module was not brought in. The matching regression tests were kept. The cases are:
+  - passwords such as `+.5`;
+  - indentation in multi-line flow arrays;
+  - `yes` staying a string instead of becoming a boolean.
+- **Upstream changes not adopted**:
+  - The SSRF re-check for IPv6 fake-IP DNS environments. It applies to self-hosted servers, and the Worker uses its own remote fetch logic.
+  - The dependency and Node.js 24 security baseline upgrade, which mainly targets the Docker images.
+- **Type checking**: Root `tsc` errors went from 101 to 0.
+  - The root `tsconfig.json` gained the `@local/*` path alias.
+  - The route tests now use `NextRequest`.
+  - Missing fields were added to test fixtures.
 
-本项目不提供代理服务、节点或订阅内容，也不保证第三方订阅和规则源的可用性、合法性或安全性。使用者应自行确认所在地区的法律要求，并对导入的数据、部署配置和使用行为负责。
+Upgrade notes: Redeploy the Worker. No data migration is needed.
+
+### EdgeSub 2.6.0-edge.13 (2026-10-08)
+
+This release lets custom accents be light colors, and tints the page neutrals with the accent.
+
+- **Light accents work**: The previous release darkened bright colors to keep white button text readable, which turned pink into taupe and light green into dark green. Buttons now use exactly the color you pick. The button text switches between white and near-black based on the fill's luminance, and every color has at least one text color that meets WCAG AA.
+- **Visible borders**: Borders and tinted backgrounds are visible again with light accents. Previously `#ffc0cb` produced a `#ffedf0` border. Custom scales are now derived from absolute lightness.
+- **Accent-tinted neutrals**: Backgrounds, cards, and dividers keep their lightness steps but take on the accent's hue. This also applies to shared SubBoost component areas. Body text tinting is unchanged.
+- **Compatibility**: The tinting uses CSS relative color syntax (Chrome 119+, Safari 16.4+, Firefox 128+). Older browsers fall back to the previous neutral palette.
+- **Known trade-off**: A very dark custom accent in the dark theme makes button outlines faint, though the button text stays readable.
+
+Upgrade notes: Redeploy the Worker. No data migration is needed. Previously chosen custom colors return to the exact color originally picked.
+
+### EdgeSub 2.6.0-edge.12 (2026-10-08)
+
+This release makes the theme accent customizable and unifies contrast across accents.
+
+- **Theme menu**: The header theme button is now a menu with System, Light, and Dark. Accents come in 8 presets (orange, amber, rose, purple, indigo, blue, cyan, green), or you can pick any color.
+- **Local storage**: The choice is stored only in the browser and applied before first paint, so there is no flash.
+- **Applied everywhere**: The accent also applies to upstream SubBoost component areas. The whole palette is driven by one 11-step scale.
+- **Contrast**: All 8 presets meet WCAG AA (4.70:1 to 6.29:1). As a result the default orange is darker; light-theme buttons changed from `#ea580c` to `#c2410c`.
+
+Upgrade notes: Redeploy the Worker. No data migration is needed.
+
+### EdgeSub 2.6.0-edge.11 (2026-10-07)
+
+This release syncs node parsing, subscription refresh, and configuration features from upstream SubBoost v2.9.0, keeping the EdgeSub UI.
+
+- **Renamed nodes**: Fixed relay groups breaking after a provider renames nodes. Refreshes now carry renames through to relay and exit nodes, listeners, and group member order.
+- **REALITY nodes**: Fixed REALITY nodes being treated as new on every refresh and appended again. Manual renames also survive provider renames.
+- **Parsing fixes**:
+  - Shadowrocket VLESS links are no longer mistaken for REALITY.
+  - Certificate fingerprints are no longer read as client fingerprints, and `tfo` is kept.
+  - Numeric passwords keep their leading zeros, and WireGuard, Mieru, and similar nodes are no longer dropped.
+  - Rules with special characters produce valid YAML.
+  - IPv6, SSR node names, and millisecond expiry times parse correctly.
+- **Automatic node processing**: Added "Node management → Automatic processing", which keeps or excludes nodes by original name with a regex. It also applies during scheduled refreshes. Risky patterns are rejected to stay within Workers CPU limits.
+- **Proxy-group advanced settings**: You can change a group's type and bind a local listener port. Auto speed-test groups can use their own test URL.
+- **Custom rules**: Accept `.mrs` rule-set links, including bulk import.
+- **Upstream changes not adopted**:
+  - The new upstream theme.
+  - Fetching subscriptions once per client identifier, which would double subrequests on Workers.
+  - Cron authentication that depends on `node:crypto`.
+
+Upgrade notes: Redeploy the Worker. No data migration is needed.
+
+### Earlier Releases
+
+| Version | Date | Highlights |
+| --- | --- | --- |
+| 2.6.0-edge.10 | 2026-10-05 | Newly pasted nodes no longer hidden by stale deletions; every successful save is confirmed |
+| 2.6.0-edge.9 | 2026-10-05 | Deleting one of several same-named nodes no longer hides the rest; customize panel opens when editing |
+| 2.6.0-edge.8 | 2026-10-05 | Fixed nodes and sources occasionally lost when editing from My subscriptions |
+| 2.6.0-edge.7 | 2026-10-02 | Full UI redesign: graphite/light themes, three-step generator, YAML and graph drawers, new dashboard, mobile layout |
+| 2.6.0-edge.6 | 2026-10-01 | Fits the free plan's 10 ms CPU limit: per-subscription refresh invocations; ACL4SSR edge cache and fallbacks; ETag/304 on `/config` |
+| 2.6.0-edge.5 | 2026-10-01 | Fixed overwrites and data loss while editing; next refresh time and failure reasons shown; minimum interval set to 6 hours |
+| 2.6.0-edge.4 | 2026-10-01 | Cron moved to every 6 hours, greatly reducing KV writes |
+| 2.6.0-edge.3 | 2026-09-07 | Better node connectivity tests; ACL4SSR profiles keep updating remotely |
+
+See the [business logic review](docs/business-logic-review-2026-09-20.md) (in Chinese) for review, fix, and verification results. Upstream release notes are in [docs/release-notes.md](docs/release-notes.md).
+
+## License
+
+EdgeSub and its upstream code are released under the [GNU Affero General Public License v3.0 only](./LICENSE).
+
+If you modify this project and offer it to users over a network, AGPL-3.0 requires you to provide those users with the complete corresponding source of the deployed version. This project links to the source from the header, footer, and mobile navigation, and `npm run edge:build` generates the source archive before the static export.
+
+Keep the project origin, original copyright notices, license file, and modification notes. Do not describe this modified version as an official SubBoost release.
+
+## Disclaimer
+
+This project does not provide proxy services, nodes, or subscription content, and makes no guarantee about the availability, legality, or safety of third-party subscriptions or rule sources. Users are responsible for checking the laws where they live and for the data they import, their deployment configuration, and how they use it.
